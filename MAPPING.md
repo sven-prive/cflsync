@@ -7,9 +7,10 @@ atlas_doc_format ⇄ Pandoc AST ⇄ GFM
 ```
 
 Pandoc supplies the second conversion through its `gfm` reader and writer.
-`cflsync` implements only the ADF reader and writer. The ADF API payload is a
-JSON-encoded ADF document; it is decoded to JSON before conversion and encoded
-again when sent to Confluence.
+`cflsync` exposes `ADFToMarkdownConverter` and `MarkdownToADFConverter`;
+Pandoc's JSON AST is an internal representation. The ADF API payload is a
+JSON-encoded ADF document; it is decoded before conversion and encoded again
+when sent to Confluence.
 
 ADF is the remote source of truth. The mapping is loss-aware: supported ADF is
 represented by ordinary Pandoc elements; unsupported ADF is retained as raw
@@ -17,8 +18,7 @@ ADF JSON in a Pandoc code block, which Pandoc writes as a fenced GFM block.
 
 ## Conversion invariants
 
-- Every emitted ADF document has `type: "doc"` and `version: 1` and is
-  validated against the ADF JSON Schema before upload.
+- Every emitted ADF document has `type: "doc"` and `version: 1`.
 - Unsupported ADF data is never silently dropped or approximated.
 - Ordinary Pandoc GFM is not interpreted as a Confluence-specific construct
   unless it matches a mapping below or a cflsync opaque marker.
@@ -104,9 +104,9 @@ string:
 ```
 ````
 
-The ADF writer recognizes only this exact marker class. It parses the JSON,
-validates it against the ADF schema, and inserts the node into the current
-ADF container. It must not turn the fence into an ADF `codeBlock`.
+The ADF conversion recognizes only this exact marker class. It parses the JSON
+and inserts the node into the current ADF container. It must not turn the fence
+into an ADF `codeBlock`.
 
 ### Retention granularity
 
@@ -159,7 +159,7 @@ a guessed local path when the relationship is absent or ambiguous.
 - Pandoc GFM → AST → ADF → AST → GFM round trips for the supported GFM subset.
 - Exact JSON preservation for opaque markers, including an inline `status`
   node retained through its enclosing paragraph.
-- Schema and parent-context rejection for malformed or misplaced opaque JSON.
+- Parent-context rejection for malformed or misplaced opaque JSON.
 - Attachment resolver tests for image and file references, ambiguity, and path
   traversal rejection.
 - Rejection of unsupported attributes rather than silent loss.

@@ -57,19 +57,23 @@ class TestPandocDiscovery(unittest.TestCase):
 
 class TestPandocConversion(unittest.TestCase):
 
-    def test_converts_gfm_to_a_parseable_native_ast(self) -> None:
+    def test_converts_gfm_to_a_parseable_pandoc_document(self) -> None:
         runner = PandocRunner()
 
-        ast = runner.gfm_to_ast("# Heading\n\nParagraph\n")
+        pandoc = runner.gfm_to_pandoc("# Heading\n\nParagraph\n")
 
-        self.assertEqual(ast["pandoc-api-version"], list(PandocRunner.API_VERSION))
-        self.assertEqual(ast["blocks"][0]["t"], "Header")
+        self.assertEqual(pandoc["pandoc-api-version"], list(PandocRunner.API_VERSION))
+        blocks = pandoc["blocks"]
+        if not isinstance(blocks, list) or not blocks or not isinstance(blocks[0], dict):
+            self.fail("Pandoc document does not contain a block object")
+
+        self.assertEqual(blocks[0]["t"], "Header")
 
     def test_writes_equivalent_gfm_in_one_canonical_form(self) -> None:
         runner = PandocRunner()
 
-        first = runner.ast_to_gfm(runner.gfm_to_ast("# Heading\n\nParagraph\n"))
-        second = runner.ast_to_gfm(runner.gfm_to_ast("# Heading\n\nParagraph\n\n"))
+        first = runner.pandoc_to_gfm(runner.gfm_to_pandoc("# Heading\n\nParagraph\n"))
+        second = runner.pandoc_to_gfm(runner.gfm_to_pandoc("# Heading\n\nParagraph\n\n"))
 
         self.assertEqual(first, "# Heading\n\nParagraph\n")
         self.assertEqual(second, first)
@@ -86,7 +90,7 @@ class TestPandocConversion(unittest.TestCase):
         runner = PandocRunner(run=FailingPandoc())
 
         with self.assertRaisesRegex(PandocError, "invalid GFM"):
-            runner.gfm_to_ast("# Heading\n")
+            runner.gfm_to_pandoc("# Heading\n")
 
 
 # vim: set ts=4 sw=4 et tw=132:

@@ -27,6 +27,9 @@ guarantee. Add type annotations for public contracts and non-obvious data
 shapes; avoid elaborate generic, protocol, or class hierarchies without a
 concrete interoperability need.
 
+Separate every conditional or loop block from a following statement at the
+same indentation with a blank line. Avoid conditional expressions for returns.
+
 ## Conversion strategy
 
 Page bodies use `atlas_doc_format` as the Confluence transport format. The
@@ -36,19 +39,20 @@ conversion boundary is:
 atlas_doc_format ⇄ Pandoc AST ⇄ GFM
 ```
 
-Pandoc provides the GFM reader and writer. The Python implementation maps
-between ADF and Pandoc's JSON AST, keeping Confluence API integration, ADF
-schema validation, cache access, and attachment resolution in one runtime.
+Pandoc provides the GFM reader and writer. The Python implementation exposes
+`ADFToMarkdownConverter` and `MarkdownToADFConverter`, using Pandoc's JSON
+AST internally. The current Markdown dialect is GFM. The converters have no
+cache, remote-page, or workspace state.
 
-On pull, `ADFReader` decodes the API's JSON-encoded ADF body and produces a
-Pandoc JSON AST; Pandoc writes canonical GFM to `page.md`. On push, Pandoc
-parses `page.md` to its JSON AST; `ADFWriter` produces ADF, validates it, and
-passes its JSON-encoded form to `APIClient` for the versioned update.
+On pull, the ADF body becomes canonical GFM for `page.md`. On push, `page.md`
+becomes ADF for the versioned API update. The synchronization coordinator owns
+cache state, staging, attachment resolution, and concurrent-edit handling.
 
 `PandocRunner` invokes a pinned compatible Pandoc binary through argument
 lists rather than a shell and verifies the expected Pandoc JSON API version.
-`MediaResolver` maps ADF media identifiers to the managed attachment IDs and
-local `_attachments/` paths recorded in the page cache.
+`MediaResolver` is supplied by the synchronization coordinator. It maps ADF
+media identifiers to the managed attachment IDs and local `_attachments/`
+paths recorded in the page cache.
 
 Only supported constructs receive a native GFM mapping. Unsupported ADF nodes
 and marks are retained as `atlas_doc_format` fenced blocks containing complete
