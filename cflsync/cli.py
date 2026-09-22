@@ -5,12 +5,14 @@
 
 from __future__ import annotations
 
+import sys
 from argparse import ArgumentParser
 from getpass import getpass
 from pathlib import Path
 
 from . import Workarea
 from .config import Config, Profile
+from .errors import SyncError
 
 
 class InitCommand:
@@ -58,15 +60,61 @@ class AuthCommand:
         return 0
 
 
+class PageCreateCommand:
+
+    def configure(self, subparsers):
+        page_create_parser = subparsers.add_parser("create", help="create an empty Confluence Cloud child page")
+        page_create_parser.add_argument("parent_page_id", help="parent Confluence page ID")
+        page_create_parser.add_argument("title", help="title for the new page")
+        page_create_parser.set_defaults(command=self)
+
+    def __call__(self, args):
+        return self.run(args.parent_page_id, args.title)
+
+    def run(self, parent_page_id: str, title: str) -> int:
+        raise SyncError("page create is not implemented")
+
+
 class PagePullCommand:
 
     def configure(self, subparsers):
         page_pull_parser = subparsers.add_parser("pull", help="pull a page from Confluence Cloud")
-        page_pull_parser.add_argument("page_ref", help="page id or title of the page to pull")
+        page_pull_parser.add_argument("page_ref", help="page ID, title, page.md file, or page directory")
         page_pull_parser.set_defaults(command=self)
 
     def __call__(self, args):
-        pass
+        return self.run(args.page_ref)
+
+    def run(self, page_ref: str) -> int:
+        raise SyncError("page pull is not implemented")
+
+
+class PagePushCommand:
+
+    def configure(self, subparsers):
+        page_push_parser = subparsers.add_parser("push", help="push a page to Confluence Cloud")
+        page_push_parser.add_argument("page_ref", help="page ID, title, page.md file, or page directory")
+        page_push_parser.set_defaults(command=self)
+
+    def __call__(self, args):
+        return self.run(args.page_ref)
+
+    def run(self, page_ref: str) -> int:
+        raise SyncError("page push is not implemented")
+
+
+class PageStatusCommand:
+
+    def configure(self, subparsers):
+        page_status_parser = subparsers.add_parser("status", help="show a page's synchronization status")
+        page_status_parser.add_argument("page_ref", help="page ID, title, page.md file, or page directory")
+        page_status_parser.set_defaults(command=self)
+
+    def __call__(self, args):
+        return self.run(args.page_ref)
+
+    def run(self, page_ref: str) -> int:
+        raise SyncError("page status is not implemented")
 
 
 class PageCommand:
@@ -75,21 +123,34 @@ class PageCommand:
         self.page_parser = subparsers.add_parser("page", help="page commands")
         self.page_parser.set_defaults(command=self)
         page_subparsers = self.page_parser.add_subparsers(title="page commands", metavar="command")
+        PageCreateCommand().configure(page_subparsers)
         PagePullCommand().configure(page_subparsers)
+        PagePushCommand().configure(page_subparsers)
+        PageStatusCommand().configure(page_subparsers)
 
     def __call__(self, args):
         self.page_parser.print_usage()
+        return 0
 
 
 def main(argv):
     parser = ArgumentParser(prog=argv[0])
-    parser.set_defaults(command=lambda args: parser.print_usage())
+    parser.set_defaults(command=lambda args: _print_usage(parser))
     subparsers = parser.add_subparsers(title="commands", metavar="command")
     AuthCommand().configure(subparsers)
     InitCommand().configure(subparsers)
     PageCommand().configure(subparsers)
     args = parser.parse_args(argv[1:])
-    return args.command(args)
+    try:
+        return args.command(args)
+    except SyncError as error:
+        print(f"{parser.prog}: {error}", file=sys.stderr)
+        return 1
+
+
+def _print_usage(parser: ArgumentParser) -> int:
+    parser.print_usage()
+    return 0
 
 
 # vim: set ts=4 sw=4 et tw=132:
