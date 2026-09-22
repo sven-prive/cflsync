@@ -237,7 +237,7 @@ class PageState:
                     pass
 
 
-from .api import APIClient, APIError, APIResponse
+from .api import APIClient, APIError, APIResponse, RemoteAttachment, RemotePage
 from .config import Config, Profile
 from .transport import Transport, TransportError, TransportResponse, UrllibTransport
 
