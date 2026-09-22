@@ -379,6 +379,82 @@ class Workarea:
             dir = dir.parent
 
 
+class PageRefError(SyncError):
+    """Raised when a page reference cannot identify exactly one page."""
+
+
+class PageRef:
+    """A resolved Confluence page identifier."""
+
+    def __init__(self, page_id: str) -> None:
+        self.page_id = page_id
+
+    @classmethod
+    def resolve(cls, value: str | Path, workarea: Workarea, api, cwd: Path | None = None) -> "PageRef":
+        """Resolve a local path, page ID, or title to one Confluence page ID."""
+        text = str(value)
+        path = _page_ref_path(value, cwd)
+        if path.exists():
+            return cls._from_path(path, workarea)
+        if text.isdigit():
+            return cls(api.get_page(text).id)
+
+        states = workarea.page_states()
+        cached_ids = [state.page.id for state in states.values() if state.page.title == text]
+        if cached_ids:
+            return cls(_one_page_ref_id(cached_ids, f"cached title '{text}'"))
+
+        pages = [page for page in api.find_pages_by_title(text) if page.title == text]
+        return cls(_one_page_ref_id([page.id for page in pages], f"title '{text}'"))
+
+    @classmethod
+    def _from_path(cls, path: Path, workarea: Workarea) -> "PageRef":
+        try:
+            relative_path = path.relative_to(workarea.root_dir)
+        except ValueError as error:
+            raise PageRefError(f"page path '{path}' is outside the workarea") from error
+
+        if path.is_file():
+            if path.name != "page.md":
+                raise PageRefError(f"page file '{path}' is not named page.md")
+            directory = path.parent
+            relative_path = relative_path.parent
+        elif path.is_dir():
+            directory = path
+            if not (directory / "page.md").is_file():
+                raise PageRefError(f"page directory '{path}' does not contain page.md")
+        else:
+            raise PageRefError(f"page path '{path}' is neither a file nor a directory")
+
+        if len(relative_path.parts) != 1:
+            raise PageRefError(f"page path '{path}' is not a managed page directory")
+        directory_name = relative_path.name
+        states = workarea.page_states()
+        page_id = next((state.page.id for state in states.values() if state.page.directory == directory_name), None)
+        if page_id is None:
+            raise PageRefError(f"page path '{path}' is not managed by cflsync")
+
+        state = states[page_id]
+        if workarea.page_directory(state) != directory:
+            raise PageRefError(f"page path '{path}' does not match its cached page state")
+
+        return cls(page_id)
+
+
+def _page_ref_path(value: str | Path, cwd: Path | None) -> Path:
+    base = cwd or Path.cwd()
+    return (base / Path(value)).resolve()
+
+
+def _one_page_ref_id(page_ids: list[str], description: str) -> str:
+    if not page_ids:
+        raise PageRefError(f"no page matches {description}")
+    if len(page_ids) > 1:
+        raise PageRefError(f"multiple pages match {description}: {', '.join(page_ids)}")
+
+    return page_ids[0]
+
+
 from .cli import main
 
 # vim: set ts=4 sw=4 et tw=132:
