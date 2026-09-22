@@ -36,6 +36,21 @@ local `page.md` file, or a managed page directory.
 Use `cflsync --help` for top-level help, `cflsync page --help` for page-command
 help, and `cflsync page COMMAND --help` for a command's arguments.
 
+## Development
+
+YAPF is the project formatter, set up to align closely with PEP-8 style. Apply
+formatting before committing changes:
+
+```console
+uv run yapf --recursive --in-place cflsync.py tests
+```
+
+Check formatting without modifying files:
+
+```console
+uv run yapf --recursive --diff cflsync.py tests
+```
+
 ## Testing
 
 Run the complete test suite with:

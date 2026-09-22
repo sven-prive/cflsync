@@ -25,6 +25,7 @@ from platformdirs import user_config_dir
 
 
 class SyncError(Exception):
+
     def __init__(self, message):
         super().__init__(message)
 
@@ -36,9 +37,7 @@ class StateError(SyncError):
 class PageMetadata:
     """The last synchronized state of one Confluence page."""
 
-    def __init__(
-        self, id: str, title: str, directory: str, version: int, content_hash: str
-    ) -> None:
+    def __init__(self, id: str, title: str, directory: str, version: int, content_hash: str) -> None:
         if not id or not id.isdigit():
             raise StateError("page.id must be a numeric identifier")
         if not title:
@@ -60,19 +59,8 @@ class PageMetadata:
         if not isinstance(other, PageMetadata):
             return NotImplemented
 
-        return (
-            self.id,
-            self.title,
-            self.directory,
-            self.version,
-            self.content_hash,
-        ) == (
-            other.id,
-            other.title,
-            other.directory,
-            other.version,
-            other.content_hash,
-        )
+        return (self.id, self.title, self.directory, self.version,
+                self.content_hash) == (other.id, other.title, other.directory, other.version, other.content_hash)
 
     def to_json(self) -> dict[str, object]:
         return {
@@ -80,14 +68,14 @@ class PageMetadata:
             "title": self.title,
             "directory": self.directory,
             "version": self.version,
-            "content_hash": self.content_hash,
-        }
+            "content_hash": self.content_hash}
 
     @classmethod
     def from_json(cls, value: object) -> "PageMetadata":
         """Validate and decode page metadata from a state JSON value."""
         if not isinstance(value, Mapping):
             raise StateError("page must be an object")
+
         try:
             id = value["id"]
             title = value["title"]
@@ -119,9 +107,7 @@ class AttachmentMetadata:
         if version < 1:
             raise StateError("attachment.version must be a positive integer")
         if re.fullmatch(r"[0-9a-f]{64}", content_hash) is None:
-            raise StateError(
-                "attachment.content_hash must be a SHA-256 hexadecimal digest"
-            )
+            raise StateError("attachment.content_hash must be a SHA-256 hexadecimal digest")
 
         self.id = id
         self.version = version
@@ -131,18 +117,10 @@ class AttachmentMetadata:
         if not isinstance(other, AttachmentMetadata):
             return NotImplemented
 
-        return (self.id, self.version, self.content_hash) == (
-            other.id,
-            other.version,
-            other.content_hash,
-        )
+        return (self.id, self.version, self.content_hash) == (other.id, other.version, other.content_hash)
 
     def to_json(self) -> dict[str, object]:
-        return {
-            "id": self.id,
-            "version": self.version,
-            "content_hash": self.content_hash,
-        }
+        return {"id": self.id, "version": self.version, "content_hash": self.content_hash}
 
     @classmethod
     def from_json(cls, value: object, name: str) -> "AttachmentMetadata":
@@ -154,9 +132,7 @@ class AttachmentMetadata:
             version = value["version"]
             content_hash = value["content_hash"]
         except KeyError as error:
-            raise StateError(
-                f"attachment '{name}'.{error.args[0]} is required"
-            ) from error
+            raise StateError(f"attachment '{name}'.{error.args[0]} is required") from error
         if not isinstance(id, str):
             raise StateError(f"attachment '{name}'.id must be a string")
         if type(version) is not int:
@@ -170,12 +146,7 @@ class AttachmentMetadata:
 class PageState:
     """Format-1 synchronization state for one managed page."""
 
-    def __init__(
-        self,
-        page: PageMetadata,
-        attachments: Mapping[str, AttachmentMetadata],
-        format: int = 1,
-    ) -> None:
+    def __init__(self, page: PageMetadata, attachments: Mapping[str, AttachmentMetadata], format: int = 1) -> None:
         if format != 1:
             raise StateError("unsupported state format")
 
@@ -193,15 +164,7 @@ class PageState:
         if not isinstance(other, PageState):
             return NotImplemented
 
-        return (
-            self.page,
-            self.attachments,
-            self.format,
-        ) == (
-            other.page,
-            other.attachments,
-            other.format,
-        )
+        return (self.page, self.attachments, self.format) == (other.page, other.attachments, other.format)
 
     def to_json(self) -> dict[str, object]:
         return {
@@ -209,9 +172,7 @@ class PageState:
             "page": self.page.to_json(),
             "attachments": {
                 name: attachment.to_json()
-                for name, attachment in self.attachments.items()
-            },
-        }
+                for name, attachment in self.attachments.items()}}
 
     @classmethod
     def from_json(cls, value: object) -> "PageState":
@@ -235,11 +196,7 @@ class PageState:
                 raise StateError("attachment name must be a non-empty string")
             attachments[name] = AttachmentMetadata.from_json(attachment_value, name)
 
-        return cls(
-            page=PageMetadata.from_json(page_value),
-            attachments=attachments,
-            format=state_format,
-        )
+        return cls(page=PageMetadata.from_json(page_value), attachments=attachments, format=state_format)
 
     @classmethod
     def load(cls, workarea: "Workarea", page_id: str) -> "PageState":
@@ -261,9 +218,7 @@ class PageState:
 
         state = cls.from_json(value)
         if state.page.id != page_id:
-            raise StateError(
-                f"state file '{path.name}' does not match page.id '{state.page.id}'"
-            )
+            raise StateError(f"state file '{path.name}' does not match page.id '{state.page.id}'")
 
         return state
 
@@ -276,14 +231,8 @@ class PageState:
 
         temporary_path: Path | None = None
         try:
-            with NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                dir=path.parent,
-                prefix=f".{self.page.id}.",
-                suffix=".tmp",
-                delete=False,
-            ) as temporary_file:
+            with NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, prefix=f".{self.page.id}.", suffix=".tmp",
+                                    delete=False) as temporary_file:
                 temporary_path = Path(temporary_file.name)
                 temporary_path.chmod(0o600)
                 json.dump(self.to_json(), temporary_file, indent=2)
@@ -293,17 +242,19 @@ class PageState:
 
             os.replace(temporary_path, path)
         except OSError as error:
-            raise StateError(
-                f"cannot write state file for page '{self.page.id}': {error}"
-            ) from error
+            raise StateError(f"cannot write state file for page '{self.page.id}': {error}") from error
         finally:
             if temporary_path is not None:
                 try:
                     temporary_path.unlink()
                 except FileNotFoundError:
                     pass
+
+
 class Config:
+
     class Profile:
+
         def __init__(self, hostname: str, username: str, apitoken: str):
             self.hostname = hostname
             self.username = username
@@ -311,18 +262,10 @@ class Config:
 
         @classmethod
         def from_json(cls, values: dict[str, str]) -> Config.Profile:
-            return cls(
-                hostname = values["hostname"],
-                username = values["username"],
-                apitoken = values["apitoken"],
-            )
+            return cls(hostname=values["hostname"], username=values["username"], apitoken=values["apitoken"])
 
         def to_json(self) -> dict[str, str]:
-            return {
-                "hostname": self.hostname,
-                "username": self.username, 
-                "apitoken": self.apitoken,
-            }
+            return {"hostname": self.hostname, "username": self.username, "apitoken": self.apitoken}
 
     def __init__(self, path: Path, profiles: dict[str, Config.Profile] | None = None):
         self.path = path
@@ -356,10 +299,10 @@ class Config:
         raise AttributeError("can't delete read-only property 'profiles'")
 
     def save(self):
-        self.path.parent.mkdir(mode = 0o700, parents = True, exist_ok = True)
+        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.path.parent.chmod(0o700)
         with open(self.path, "w") as f:
-            json.dump(self.to_json(), f, indent = 2)
+            json.dump(self.to_json(), f, indent=2)
             f.write("\n")
         self.path.chmod(0o600)
 
@@ -372,6 +315,7 @@ class Config:
 
 
 class APIError(SyncError):
+
     def __init__(self, message: str, status: int | None = None) -> None:
         super().__init__(message)
         self.status = status
@@ -384,8 +328,7 @@ class APIError(SyncError):
             404: NotFoundError,
             409: ConflictError,
             412: ConflictError,
-            429: RateLimitError,
-        }.get(response.status, cls)
+            429: RateLimitError}.get(response.status, cls)
         message = f"Confluence API request failed with HTTP {response.status}"
         try:
             value = json.loads(response.body)
@@ -438,13 +381,13 @@ class HTTPTransport(Protocol):
     """A transport that sends one complete HTTP request."""
 
     def request(
-        self,
-        method: str,
-        url: str,
-        *,
-        headers: Mapping[str, str] | None = None,
-        body: bytes | None = None,
-    ) -> TransportResponse: ...
+            self,
+            method: str,
+            url: str,
+            *,
+            headers: Mapping[str, str] | None = None,
+            body: bytes | None = None) -> TransportResponse:
+        ...
 
 
 class UrllibHTTPTransport:
@@ -452,43 +395,23 @@ class UrllibHTTPTransport:
 
     def __init__(self, host: str, username: str, password: str) -> None:
         auth = urllib.request.HTTPPasswordMgrWithPriorAuth()
-        auth.add_password(
-            realm=None,
-            uri=f"https://{host}",
-            user=username,
-            passwd=password,
-            is_authenticated=True,
-        )
+        auth.add_password(realm=None, uri=f"https://{host}", user=username, passwd=password, is_authenticated=True)
         auth_handler = urllib.request.HTTPBasicAuthHandler(auth)
         self._opener = urllib.request.build_opener(auth_handler)
 
     def request(
-        self,
-        method: str,
-        url: str,
-        *,
-        headers: Mapping[str, str] | None = None,
-        body: bytes | None = None,
-    ) -> TransportResponse:
-        request = urllib.request.Request(
-            url,
-            data=body,
-            headers=dict(headers or {}),
-            method=method,
-        )
+            self,
+            method: str,
+            url: str,
+            *,
+            headers: Mapping[str, str] | None = None,
+            body: bytes | None = None) -> TransportResponse:
+        request = urllib.request.Request(url, data=body, headers=dict(headers or {}), method=method)
         try:
             with self._opener.open(request) as response:
-                return HTTPResponse(
-                    status=response.status,
-                    headers=dict(response.headers.items()),
-                    body=response.read(),
-                )
+                return HTTPResponse(status=response.status, headers=dict(response.headers.items()), body=response.read())
         except urllib.error.HTTPError as error:
-            return HTTPResponse(
-                status=error.code,
-                headers=dict(error.headers.items()) if error.headers else {},
-                body=error.read(),
-            )
+            return HTTPResponse(status=error.code, headers=dict(error.headers.items()) if error.headers else {}, body=error.read())
         except urllib.error.URLError as error:
             raise TransportError(f"cannot reach Confluence API: {error.reason}") from error
 
@@ -496,9 +419,7 @@ class UrllibHTTPTransport:
 class HTTPResponse:
     """An in-memory HTTP response returned by :class:`UrllibTransport`."""
 
-    def __init__(
-        self, status: int, headers: Mapping[str, str], body: bytes
-    ) -> None:
+    def __init__(self, status: int, headers: Mapping[str, str], body: bytes) -> None:
         self.status = status
         self.headers = dict(headers)
         self.body = body
@@ -507,14 +428,7 @@ class HTTPResponse:
 class Transport:
     """An authenticated HTTP context with a URL prefix."""
 
-    def __init__(
-        self,
-        host: str,
-        username: str,
-        password: str,
-        prefix: str,
-        http_transport: HTTPTransport,
-    ) -> None:
+    def __init__(self, host: str, username: str, password: str, prefix: str, http_transport: HTTPTransport) -> None:
         self._host = host
         self._username = username
         self._password = password
@@ -525,13 +439,7 @@ class Transport:
         if prefix is None:
             prefix = self._prefix
 
-        return Transport(
-            self._host,
-            self._username,
-            self._password,
-            prefix,
-            self._http_transport,
-        )
+        return Transport(self._host, self._username, self._password, prefix, self._http_transport)
 
     def host_url(self) -> str:
         return f"https://{self._host}"
@@ -539,17 +447,11 @@ class Transport:
     def base_url(self) -> str:
         return f"{self.host_url()}{self._prefix}"
 
-    def _request_url(
-        self, path: str, parameters: Mapping[str, str] | None
-    ) -> str:
+    def _request_url(self, path: str, parameters: Mapping[str, str] | None) -> str:
         parsed_path = urllib.parse.urlsplit(path)
         if parsed_path.scheme or parsed_path.netloc or parsed_path.fragment:
             raise TransportError("request path must be relative to the configured host")
-        encoded_path = "/".join(
-            urllib.parse.quote(part, safe="")
-            for part in parsed_path.path.lstrip("/").split("/")
-            if part
-        )
+        encoded_path = "/".join(urllib.parse.quote(part, safe="") for part in parsed_path.path.lstrip("/").split("/") if part)
         url = self.base_url()
         if encoded_path:
             url = f"{url}/{encoded_path}"
@@ -562,35 +464,23 @@ class Transport:
 
         return url
 
-    def _request_headers(
-        self, headers: Mapping[str, str] | None
-    ) -> dict[str, str]:
-        encoded_credentials = b64encode(
-            f"{self._username}:{self._password}".encode("utf-8")
-        ).decode("ascii")
-        request_headers = {
-            "Accept": "application/json",
-            "Authorization": f"Basic {encoded_credentials}",
-        }
+    def _request_headers(self, headers: Mapping[str, str] | None) -> dict[str, str]:
+        encoded_credentials = b64encode(f"{self._username}:{self._password}".encode("utf-8")).decode("ascii")
+        request_headers = {"Accept": "application/json", "Authorization": f"Basic {encoded_credentials}"}
         request_headers.update(headers or {})
 
         return request_headers
 
     def make_request(
-        self,
-        method: str,
-        path: str = "",
-        parameters: Mapping[str, str] | None = None,
-        headers: Mapping[str, str] | None = None,
-        body: bytes | None = None,
-    ) -> TransportResponse:
+            self,
+            method: str,
+            path: str = "",
+            parameters: Mapping[str, str] | None = None,
+            headers: Mapping[str, str] | None = None,
+            body: bytes | None = None) -> TransportResponse:
         """Send one request relative to this context's prefix."""
         response = self._http_transport.request(
-            method,
-            self._request_url(path, parameters),
-            headers=self._request_headers(headers),
-            body=body,
-        )
+            method, self._request_url(path, parameters), headers=self._request_headers(headers), body=body)
         if not 200 <= response.status < 300:
             raise APIError.from_http_error(response)
 
@@ -598,41 +488,33 @@ class Transport:
 
 
 class APIClient:
+
     def __init__(
-        self,
-        host: str,
-        username: str,
-        password: str,
-        base_path: str = "/wiki/api/v2",
-        transport: HTTPTransport | None = None,
-    ) -> None:
-        self._transport = Transport(
-            host,
-            username,
-            password,
-            base_path,
-            transport or UrllibHTTPTransport(host, username, password),
-        )
+            self,
+            host: str,
+            username: str,
+            password: str,
+            base_path: str = "/wiki/api/v2",
+            transport: HTTPTransport | None = None) -> None:
+        self._transport = Transport(host, username, password, base_path, transport or UrllibHTTPTransport(host, username, password))
 
     def make_request(
-        self,
-        method: str,
-        path: str = "",
-        parameters: Mapping[str, str] | None = None,
-        headers: Mapping[str, str] | None = None,
-        body: bytes | None = None,
-    ) -> TransportResponse:
+            self,
+            method: str,
+            path: str = "",
+            parameters: Mapping[str, str] | None = None,
+            headers: Mapping[str, str] | None = None,
+            body: bytes | None = None) -> TransportResponse:
         """Send one request through the configured transport context."""
         return self._transport.make_request(method, path, parameters, headers, body)
 
     def make_json_request(
-        self,
-        method: str,
-        path: str = "",
-        parameters: Mapping[str, str] | None = None,
-        headers: Mapping[str, str] | None = None,
-        json_body: object | None = None,
-    ) -> TransportResponse:
+            self,
+            method: str,
+            path: str = "",
+            parameters: Mapping[str, str] | None = None,
+            headers: Mapping[str, str] | None = None,
+            json_body: object | None = None) -> TransportResponse:
         """Send a request with an optional JSON-encoded body."""
         request_headers = dict(headers or {})
         body = None
@@ -640,22 +522,15 @@ class APIClient:
             request_headers.setdefault("Content-Type", "application/json")
             body = json.dumps(json_body).encode("utf-8")
 
-        return self.make_request(
-            method,
-            path,
-            parameters,
-            request_headers,
-            body,
-        )
+        return self.make_request(method, path, parameters, request_headers, body)
 
     def make_paginated_request(
-        self,
-        method: str,
-        path: str = "",
-        parameters: Mapping[str, str] | None = None,
-        headers: Mapping[str, str] | None = None,
-        body: bytes | None = None,
-    ) -> list[object]:
+            self,
+            method: str,
+            path: str = "",
+            parameters: Mapping[str, str] | None = None,
+            headers: Mapping[str, str] | None = None,
+            body: bytes | None = None) -> list[object]:
         """Send a paginated request and return its combined results."""
         response = self.make_request(method, path, parameters, headers, body)
         results: list[object] = []
@@ -672,7 +547,7 @@ class APIClient:
                 return results
 
             next_path_transport = self._transport.clone("")
-            response = next_path_transport.make_request("GET", next_path, headers = headers)
+            response = next_path_transport.make_request("GET", next_path, headers=headers)
 
     @staticmethod
     def _json_object(response: TransportResponse) -> Mapping[str, object]:
@@ -698,7 +573,9 @@ class APIClient:
 
 
 class Workarea:
+
     class Error(SyncError):
+
         def __init__(self, message):
             super().__init__(message)
 
@@ -726,9 +603,9 @@ class Workarea:
             raise Workarea.Error(f"'{p}' already contains '{cflsync_dir.name}'")
 
         cache_dir = cflsync_dir / "cache"
-        cflsync_dir.mkdir(mode = 0o700)
+        cflsync_dir.mkdir(mode=0o700)
         cflsync_dir.chmod(0o700)
-        cache_dir.mkdir(mode = 0o700)
+        cache_dir.mkdir(mode=0o700)
         cache_dir.chmod(0o700)
 
         profile_path = cflsync_dir / "profile"
@@ -760,9 +637,7 @@ class Workarea:
     def page_states(self) -> dict[str, PageState]:
         """Return every validated page state, ordered by numeric page ID."""
         try:
-            cache_paths = sorted(
-                self.cache_dir.glob("*.json"), key=lambda path: int(path.stem)
-            )
+            cache_paths = sorted(self.cache_dir.glob("*.json"), key=lambda path: int(path.stem))
         except ValueError as error:
             raise StateError("cache contains a non-numeric page-state filename") from error
 
@@ -775,9 +650,7 @@ class Workarea:
             assigned_page_id = directories.get(state.page.directory)
             if assigned_page_id is not None:
                 raise Workarea.Error(
-                    f"page directory '{state.page.directory}' is assigned to both "
-                    f"'{assigned_page_id}' and '{state.page.id}'"
-                )
+                    f"page directory '{state.page.directory}' is assigned to both '{assigned_page_id}' and '{state.page.id}'")
             directories[state.page.directory] = state.page.id
             states[state.page.id] = state
 
@@ -801,22 +674,14 @@ class Workarea:
         """Return a safe, unoccupied target path for a page directory."""
         directory = self._page_directory_path(state.page.directory)
         cached_state = self.page_states().get(state.page.id)
-        if directory.exists() and (
-            cached_state is None or cached_state.page.directory != state.page.directory
-        ):
-            raise Workarea.Error(
-                f"page directory '{state.page.directory}' already exists"
-            )
+        if directory.exists() and (cached_state is None or cached_state.page.directory != state.page.directory):
+            raise Workarea.Error(f"page directory '{state.page.directory}' already exists")
 
         return directory
 
     def _page_directory_path(self, directory_name: str) -> Path:
         directory = Path(directory_name)
-        if (
-            directory.is_absolute()
-            or directory.name != directory_name
-            or directory_name in {".", ".."}
-        ):
+        if directory.is_absolute() or directory.name != directory_name or directory_name in {".", ".."}:
             raise Workarea.Error("page directory must be a single relative name")
 
         path = (self.root_dir / directory).resolve()
@@ -845,10 +710,11 @@ class Workarea:
 
 
 class InitCommand:
+
     def configure(self, sp):
-        init_parser = sp.add_parser("init", help = "initialise a cflsync workarea in the current directory")
-        init_parser.add_argument("-p", "--profile", default = "default", help = "use PROFILE instead of 'default'")
-        init_parser.set_defaults(command = self)
+        init_parser = sp.add_parser("init", help="initialise a cflsync workarea in the current directory")
+        init_parser.add_argument("-p", "--profile", default="default", help="use PROFILE instead of 'default'")
+        init_parser.set_defaults(command=self)
 
     def __call__(self, args):
         wa = Workarea.init(Path.cwd(), args.profile)
@@ -857,13 +723,14 @@ class InitCommand:
 
 
 class AuthCommand:
+
     def configure(self, sp):
-        auth_parser = sp.add_parser("auth", help = "store Confluence Cloud credentials")
-        auth_parser.add_argument("-p", "--profile", default = "default", help = "store credentials under PROFILE instead of 'default'")
+        auth_parser = sp.add_parser("auth", help="store Confluence Cloud credentials")
+        auth_parser.add_argument("-p", "--profile", default="default", help="store credentials under PROFILE instead of 'default'")
         auth_action = auth_parser.add_mutually_exclusive_group()
-        auth_action.add_argument("-l", "--list", action = "store_true", help = "list available profiles")
-        auth_action.add_argument("-d", "--delete", action = "store_true", help = "delete stored credentials")
-        auth_parser.set_defaults(command = self)
+        auth_action.add_argument("-l", "--list", action="store_true", help="list available profiles")
+        auth_action.add_argument("-d", "--delete", action="store_true", help="delete stored credentials")
+        auth_parser.set_defaults(command=self)
 
     def __call__(self, args):
         config = Config.find()
@@ -895,21 +762,23 @@ class AuthCommand:
 
 
 class PagePullCommand:
+
     def configure(self, sp):
-        page_pull_parser = sp.add_parser("pull", help = "pull a page from Confluence Cloud")
-        page_pull_parser.add_argument("page_ref", help = "page id or title of the page to pull")
-        page_pull_parser.set_defaults(command = self)
+        page_pull_parser = sp.add_parser("pull", help="pull a page from Confluence Cloud")
+        page_pull_parser.add_argument("page_ref", help="page id or title of the page to pull")
+        page_pull_parser.set_defaults(command=self)
 
     def __call__(self, args):
         pass
 
 
 class PageCommand:
+
     def configure(self, sp):
         # Dirty trick: cache the page command parser so we can print help later
-        self.page_parser = sp.add_parser("page", help = "page commands")
-        self.page_parser.set_defaults(command = self)
-        ssp = self.page_parser.add_subparsers(title = "page commands", metavar = "command")
+        self.page_parser = sp.add_parser("page", help="page commands")
+        self.page_parser.set_defaults(command=self)
+        ssp = self.page_parser.add_subparsers(title="page commands", metavar="command")
 
         PagePullCommand().configure(ssp)
 
@@ -919,11 +788,11 @@ class PageCommand:
 
 
 def main(argv):
-    ap = ArgumentParser(prog = argv[0])
+    ap = ArgumentParser(prog=argv[0])
     # Avoid "error: " message from the argument parser by making the subparser
     # commands required
-    ap.set_defaults(command = lambda args: ap.print_usage())
-    sp = ap.add_subparsers(title = "commands", metavar = "command")
+    ap.set_defaults(command=lambda args: ap.print_usage())
+    sp = ap.add_subparsers(title="commands", metavar="command")
 
     AuthCommand().configure(sp)
     InitCommand().configure(sp)
@@ -936,3 +805,5 @@ def main(argv):
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv))
+
+# vim: set ts=4 sw=4 et tw=132:

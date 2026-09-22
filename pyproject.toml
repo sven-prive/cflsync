@@ -7,5 +7,22 @@ dependencies = [
     "platformdirs>=4.3.8",
 ]
 
+[dependency-groups]
+dev = [
+    "yapf>=0.43",
+]
+
+[tool.yapf]
+based_on_style = "pep8"
+column_limit = 132
+indent_width = 4
+continuation_indent_width = 4
+continuation_align_style = "SPACE"
+split_before_first_argument = true
+split_before_closing_bracket = false
+disable_ending_comma_heuristic = true
+dedent_closing_brackets = false
+indent_closing_brackets = false
+
 [tool.zuban]
 python_executable = ".venv/bin/python"

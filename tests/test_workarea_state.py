@@ -1,7 +1,6 @@
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
-
 """Tests for state-backed workarea operations."""
 
 import unittest
@@ -11,6 +10,7 @@ from tests.support import example_page_state, temporary_workarea
 
 
 class TestWorkareaPageStates(unittest.TestCase):
+
     def test_enumerates_all_valid_states_by_numeric_page_id(self) -> None:
         with temporary_workarea() as workarea:
             first = example_page_state("9", directory="First page")
@@ -25,15 +25,14 @@ class TestWorkareaPageStates(unittest.TestCase):
 
     def test_rejects_a_malformed_cache_entry(self) -> None:
         with temporary_workarea() as workarea:
-            (workarea.cache_dir / "not-a-page.json").write_text(
-                "{}", encoding="utf-8"
-            )
+            (workarea.cache_dir / "not-a-page.json").write_text("{}", encoding="utf-8")
 
             with self.assertRaises(StateError):
                 workarea.page_states()
 
 
 class TestWorkareaPageDirectory(unittest.TestCase):
+
     def test_returns_an_existing_managed_page_directory(self) -> None:
         with temporary_workarea() as workarea:
             state = example_page_state()
@@ -57,6 +56,7 @@ class TestWorkareaPageDirectory(unittest.TestCase):
 
 
 class TestWorkareaSafePaths(unittest.TestCase):
+
     def test_rejects_a_traversal_page_directory(self) -> None:
         with temporary_workarea() as workarea:
             state = example_page_state(directory="../outside")
@@ -90,3 +90,6 @@ class TestWorkareaSafePaths(unittest.TestCase):
                 workarea.page_directory_target(state)
 
             self.assertEqual(sorted(workarea.root_dir.iterdir()), before)
+
+
+# vim: set ts=4 sw=4 et tw=132:
