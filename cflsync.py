@@ -10,12 +10,16 @@ import json
 import os
 import re
 import sys
-import urllib
+import urllib.error
+import urllib.parse
+import urllib.request
+from base64 import b64encode
 from argparse import ArgumentParser
 from collections.abc import Mapping
 from getpass import getpass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from typing import Protocol
 
 from platformdirs import user_config_dir
 
@@ -368,80 +372,329 @@ class Config:
 
 
 class APIError(SyncError):
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+
     @classmethod
-    def from_http_error(cls):
-        pass
+    def from_http_error(cls, response: "TransportResponse") -> "APIError":
+        error_type = {
+            401: AuthenticationError,
+            403: AuthorizationError,
+            404: NotFoundError,
+            409: ConflictError,
+            412: ConflictError,
+            429: RateLimitError,
+        }.get(response.status, cls)
+        message = f"Confluence API request failed with HTTP {response.status}"
+        try:
+            value = json.loads(response.body)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            pass
+        else:
+            if isinstance(value, Mapping) and isinstance(value.get("message"), str):
+                message = value["message"]
+
+        return error_type(message, response.status)
 
 
-class APIClient():
-    _host: str
-    _username: str
-    _password: str
-    _base_path: str
-    _opener : urllib.request.OpenerDirector
+class AuthenticationError(APIError):
+    """Raised for HTTP 401 responses."""
 
-    def __init__(self, host, username, password, base_path="/wiki/api/v2"):
+
+class AuthorizationError(APIError):
+    """Raised for HTTP 403 responses."""
+
+
+class NotFoundError(APIError):
+    """Raised for HTTP 404 responses."""
+
+
+class RateLimitError(APIError):
+    """Raised for HTTP 429 responses."""
+
+
+class ConflictError(APIError):
+    """Raised for HTTP 409 and 412 version-conflict responses."""
+
+
+class ResponseError(APIError):
+    """Raised for malformed API response data."""
+
+
+class TransportError(APIError):
+    """Raised when an HTTP request cannot be sent."""
+
+
+class TransportResponse(Protocol):
+    """The response interface returned by an API transport."""
+
+    status: int
+    headers: Mapping[str, str]
+    body: bytes
+
+
+class HTTPTransport(Protocol):
+    """A transport that sends one complete HTTP request."""
+
+    def request(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: Mapping[str, str] | None = None,
+        body: bytes | None = None,
+    ) -> TransportResponse: ...
+
+
+class UrllibHTTPTransport:
+    """HTTP transport backed by :mod:`urllib.request`."""
+
+    def __init__(self, host: str, username: str, password: str) -> None:
         auth = urllib.request.HTTPPasswordMgrWithPriorAuth()
         auth.add_password(
-            realm = None,
-            uri = f"https://{host}",
-            user = username,
-            passwd = password,
-            is_authenticated = True,
+            realm=None,
+            uri=f"https://{host}",
+            user=username,
+            passwd=password,
+            is_authenticated=True,
         )
-
         auth_handler = urllib.request.HTTPBasicAuthHandler(auth)
+        self._opener = urllib.request.build_opener(auth_handler)
 
+    def request(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: Mapping[str, str] | None = None,
+        body: bytes | None = None,
+    ) -> TransportResponse:
+        request = urllib.request.Request(
+            url,
+            data=body,
+            headers=dict(headers or {}),
+            method=method,
+        )
+        try:
+            with self._opener.open(request) as response:
+                return HTTPResponse(
+                    status=response.status,
+                    headers=dict(response.headers.items()),
+                    body=response.read(),
+                )
+        except urllib.error.HTTPError as error:
+            return HTTPResponse(
+                status=error.code,
+                headers=dict(error.headers.items()) if error.headers else {},
+                body=error.read(),
+            )
+        except urllib.error.URLError as error:
+            raise TransportError(f"cannot reach Confluence API: {error.reason}") from error
+
+
+class HTTPResponse:
+    """An in-memory HTTP response returned by :class:`UrllibTransport`."""
+
+    def __init__(
+        self, status: int, headers: Mapping[str, str], body: bytes
+    ) -> None:
+        self.status = status
+        self.headers = dict(headers)
+        self.body = body
+
+
+class Transport:
+    """An authenticated HTTP context with a URL prefix."""
+
+    def __init__(
+        self,
+        host: str,
+        username: str,
+        password: str,
+        prefix: str,
+        http_transport: HTTPTransport,
+    ) -> None:
         self._host = host
         self._username = username
         self._password = password
-        self._base_path = base_path
-        self._opener = urllib.request.build_opener(auth_handler)
+        self._prefix = prefix
+        self._http_transport = http_transport
 
-    def clone(self, base_path = None):
-        if base_path is None:
-            base_path = self._base_path
+    def clone(self, prefix: str | None = None) -> "Transport":
+        if prefix is None:
+            prefix = self._prefix
 
-        return Context(self._host, self._username, self._password, base_path)
+        return Transport(
+            self._host,
+            self._username,
+            self._password,
+            prefix,
+            self._http_transport,
+        )
 
     def host_url(self) -> str:
         return f"https://{self._host}"
 
     def base_url(self) -> str:
-        return f"{self.host_url()}{self._base_path}"
+        return f"{self.host_url()}{self._prefix}"
 
-    def open_url(self, request: urllib.request.Request):
-        return self._opener.open(request)
+    def _request_url(
+        self, path: str, parameters: Mapping[str, str] | None
+    ) -> str:
+        parsed_path = urllib.parse.urlsplit(path)
+        if parsed_path.scheme or parsed_path.netloc or parsed_path.fragment:
+            raise TransportError("request path must be relative to the configured host")
+        encoded_path = "/".join(
+            urllib.parse.quote(part, safe="")
+            for part in parsed_path.path.lstrip("/").split("/")
+            if part
+        )
+        url = self.base_url()
+        if encoded_path:
+            url = f"{url}/{encoded_path}"
+        query = parsed_path.query
+        if parameters:
+            encoded_parameters = urllib.parse.urlencode(parameters)
+            query = f"{query}&{encoded_parameters}" if query else encoded_parameters
+        if query:
+            url = f"{url}?{query}"
 
-    def make_request(self, method, parameters = {}, headers = {}, body = None):
-        url = self.url
-        if len(parameters) > 0:
-            url = f"{url}?{urllib.parse.urlencode(parameters)}"
+        return url
 
-        req = urllib.request.Request(url, method = method, headers = headers, data = body)
+    def _request_headers(
+        self, headers: Mapping[str, str] | None
+    ) -> dict[str, str]:
+        encoded_credentials = b64encode(
+            f"{self._username}:{self._password}".encode("utf-8")
+        ).decode("ascii")
+        request_headers = {
+            "Accept": "application/json",
+            "Authorization": f"Basic {encoded_credentials}",
+        }
+        request_headers.update(headers or {})
 
-        return self.context.open_url(req)
+        return request_headers
 
-    def make_paginated_request(self, method, parameters = {}, headers = {}, body = None):
-        results = []
-        response = self.make_request(method, parameters, headers, body)
+    def make_request(
+        self,
+        method: str,
+        path: str = "",
+        parameters: Mapping[str, str] | None = None,
+        headers: Mapping[str, str] | None = None,
+        body: bytes | None = None,
+    ) -> TransportResponse:
+        """Send one request relative to this context's prefix."""
+        response = self._http_transport.request(
+            method,
+            self._request_url(path, parameters),
+            headers=self._request_headers(headers),
+            body=body,
+        )
+        if not 200 <= response.status < 300:
+            raise APIError.from_http_error(response)
+
+        return response
+
+
+class APIClient:
+    def __init__(
+        self,
+        host: str,
+        username: str,
+        password: str,
+        base_path: str = "/wiki/api/v2",
+        transport: HTTPTransport | None = None,
+    ) -> None:
+        self._transport = Transport(
+            host,
+            username,
+            password,
+            base_path,
+            transport or UrllibHTTPTransport(host, username, password),
+        )
+
+    def make_request(
+        self,
+        method: str,
+        path: str = "",
+        parameters: Mapping[str, str] | None = None,
+        headers: Mapping[str, str] | None = None,
+        body: bytes | None = None,
+    ) -> TransportResponse:
+        """Send one request through the configured transport context."""
+        return self._transport.make_request(method, path, parameters, headers, body)
+
+    def make_json_request(
+        self,
+        method: str,
+        path: str = "",
+        parameters: Mapping[str, str] | None = None,
+        headers: Mapping[str, str] | None = None,
+        json_body: object | None = None,
+    ) -> TransportResponse:
+        """Send a request with an optional JSON-encoded body."""
+        request_headers = dict(headers or {})
+        body = None
+        if json_body is not None:
+            request_headers.setdefault("Content-Type", "application/json")
+            body = json.dumps(json_body).encode("utf-8")
+
+        return self.make_request(
+            method,
+            path,
+            parameters,
+            request_headers,
+            body,
+        )
+
+    def make_paginated_request(
+        self,
+        method: str,
+        path: str = "",
+        parameters: Mapping[str, str] | None = None,
+        headers: Mapping[str, str] | None = None,
+        body: bytes | None = None,
+    ) -> list[object]:
+        """Send a paginated request and return its combined results."""
+        response = self.make_request(method, path, parameters, headers, body)
+        results: list[object] = []
 
         while True:
-            if not self.is_ok(response):
-                return response
+            result = self._json_object(response)
+            page_results = result.get("results")
+            if not isinstance(page_results, list):
+                raise ResponseError("paginated response has no results list")
+            results.extend(page_results)
 
-            result = json.load(response)
-            results.extend(result.get("results", []))
-
-            next_path = result.get("_links", {}).get("next")
+            next_path = self._next_page_path(result)
             if next_path is None:
-                break
+                return results
 
-            # _links.next is relative to the host root, not the API root
-            next_resource = Resource(self.context.clone(""), next_path)
-            response = next_resource.make_request("GET", {}, headers)
+            next_path_transport = self._transport.clone("")
+            response = next_path_transport.make_request("GET", next_path, headers = headers)
 
-        return results
+    @staticmethod
+    def _json_object(response: TransportResponse) -> Mapping[str, object]:
+        try:
+            value = json.loads(response.body)
+        except (json.JSONDecodeError, UnicodeDecodeError) as error:
+            raise ResponseError("API response is not valid JSON") from error
+        if not isinstance(value, Mapping):
+            raise ResponseError("API response must be a JSON object")
+
+        return value
+
+    @staticmethod
+    def _next_page_path(result: Mapping[str, object]) -> str | None:
+        links = result.get("_links", {})
+        if not isinstance(links, Mapping):
+            raise ResponseError("pagination links must be a JSON object")
+        next_path = links.get("next")
+        if next_path is not None and not isinstance(next_path, str):
+            raise ResponseError("pagination next link must be a string")
+
+        return next_path
 
 
 class Workarea:
