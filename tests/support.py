@@ -26,13 +26,17 @@ def temporary_workarea(profile: str = "default") -> Iterator[Workarea]:
         yield Workarea.init(root, profile)
 
 
-def example_page_state(page_id: str = "123456") -> PageState:
+def example_page_state(
+    page_id: str = "123456",
+    title: str = "Example page",
+    directory: str = "Example page",
+) -> PageState:
     """Return a valid format-1 state for tests that need persisted state."""
     return PageState(
         page=PageMetadata(
             id=page_id,
-            title="Example page",
-            directory="Example page",
+            title=title,
+            directory=directory,
             version=17,
             content_hash=hashlib.sha256(b"page").hexdigest(),
         ),

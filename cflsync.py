@@ -504,6 +504,78 @@ class Workarea:
 
         return self.cache_dir / f"{page_id}.json"
 
+    def page_states(self) -> dict[str, PageState]:
+        """Return every validated page state, ordered by numeric page ID."""
+        try:
+            cache_paths = sorted(
+                self.cache_dir.glob("*.json"), key=lambda path: int(path.stem)
+            )
+        except ValueError as error:
+            raise StateError("cache contains a non-numeric page-state filename") from error
+
+        states: dict[str, PageState] = {}
+        directories: dict[str, str] = {}
+        for cache_path in cache_paths:
+            if not cache_path.is_file():
+                raise StateError(f"cache entry '{cache_path.name}' is not a file")
+            state = PageState.load(self, cache_path.stem)
+            assigned_page_id = directories.get(state.page.directory)
+            if assigned_page_id is not None:
+                raise Workarea.Error(
+                    f"page directory '{state.page.directory}' is assigned to both "
+                    f"'{assigned_page_id}' and '{state.page.id}'"
+                )
+            directories[state.page.directory] = state.page.id
+            states[state.page.id] = state
+
+        return states
+
+    def page_state(self, page_id: str) -> PageState:
+        """Return the validated cached state for *page_id*."""
+        return PageState.load(self, page_id)
+
+    def page_directory(self, state: PageState) -> Path:
+        """Return the existing managed directory recorded in *state*."""
+        directory = self._page_directory_path(state.page.directory)
+        if not directory.is_dir():
+            raise Workarea.Error("managed page directory does not exist")
+        if not (directory / "page.md").is_file():
+            raise Workarea.Error("managed page directory does not contain page.md")
+
+        return directory
+
+    def page_directory_target(self, state: PageState) -> Path:
+        """Return a safe, unoccupied target path for a page directory."""
+        directory = self._page_directory_path(state.page.directory)
+        cached_state = self.page_states().get(state.page.id)
+        if directory.exists() and (
+            cached_state is None or cached_state.page.directory != state.page.directory
+        ):
+            raise Workarea.Error(
+                f"page directory '{state.page.directory}' already exists"
+            )
+
+        return directory
+
+    def _page_directory_path(self, directory_name: str) -> Path:
+        directory = Path(directory_name)
+        if (
+            directory.is_absolute()
+            or directory.name != directory_name
+            or directory_name in {".", ".."}
+        ):
+            raise Workarea.Error("page directory must be a single relative name")
+
+        path = (self.root_dir / directory).resolve()
+        try:
+            path.relative_to(self.root_dir)
+        except ValueError as error:
+            raise Workarea.Error("page directory is outside the workarea") from error
+        if path == self.root_dir:
+            raise Workarea.Error("page directory must be below the workarea root")
+
+        return path
+
     @classmethod
     def find(cls, p: Path):
         """Locate the workarea, if any, that contains path p."""
