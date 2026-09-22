@@ -52,7 +52,8 @@ cache state, staging, attachment resolution, and concurrent-edit handling.
 lists rather than a shell and verifies the expected Pandoc JSON API version.
 `MediaResolver` is supplied by the synchronization coordinator. It maps ADF
 media identifiers to the managed attachment IDs and local `_attachments/`
-paths recorded in the page cache.
+paths recorded in the page cache. It has no API, filesystem, or cache access;
+the coordinator supplies an attachment manifest as `(filename, ID)` pairs.
 
 Only supported constructs receive a native GFM mapping. Unsupported ADF nodes
 and marks are retained as `atlas_doc_format` fenced blocks containing complete

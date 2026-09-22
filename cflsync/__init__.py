@@ -456,6 +456,6 @@ def _one_page_ref_id(page_ids: list[str], description: str) -> str:
 
 
 from .cli import main
-from .convert import ADFToMarkdownConverter, ConversionError, MarkdownToADFConverter, PandocError, PandocRunner
+from .convert import ADFToMarkdownConverter, ConversionError, MarkdownToADFConverter, MediaResolutionError, MediaResolver, PandocError, PandocRunner
 
 # vim: set ts=4 sw=4 et tw=132:

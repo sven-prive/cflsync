@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 
 from .errors import SyncError
 
@@ -21,6 +21,72 @@ class PandocError(SyncError):
 
 class ConversionError(SyncError):
     """Raised when document markup cannot be converted without loss."""
+
+
+class MediaResolutionError(SyncError):
+    """Raised when a managed attachment cannot be resolved safely."""
+
+
+class MediaResolver:
+    """Map a page attachment manifest between IDs and local paths."""
+
+    def __init__(self, manifest: Iterable[tuple[str, str]]) -> None:
+        paths_by_id = {}
+        ids_by_filename = {}
+        for filename, attachment_id in manifest:
+            self._validate_filename(filename)
+            self._validate_attachment_id(attachment_id)
+            if filename in ids_by_filename:
+                raise MediaResolutionError(f"attachment filename '{filename}' is ambiguous")
+
+            if attachment_id in paths_by_id:
+                raise MediaResolutionError(f"attachment ID '{attachment_id}' is ambiguous")
+
+            paths_by_id[attachment_id] = f"_attachments/{filename}"
+            ids_by_filename[filename] = attachment_id
+
+        self._paths_by_id = paths_by_id
+        self._ids_by_filename = ids_by_filename
+
+    def path_for(self, attachment_id: str) -> str:
+        """Return the managed Markdown path for one attachment ID."""
+        self._validate_attachment_id(attachment_id)
+        try:
+            return self._paths_by_id[attachment_id]
+        except KeyError as error:
+            raise MediaResolutionError(f"attachment ID '{attachment_id}' is not managed") from error
+
+    def id_for(self, path: str) -> str:
+        """Return the attachment ID for one managed Markdown path."""
+        filename = self._filename_from_path(path)
+        try:
+            return self._ids_by_filename[filename]
+        except KeyError as error:
+            raise MediaResolutionError(f"attachment path '{path}' is not managed") from error
+
+    def _validate_filename(self, filename):
+        if not isinstance(filename, str) or not filename or filename in {".", ".."}:
+            raise MediaResolutionError("attachment filename must be a non-empty basename")
+
+        if "/" in filename or "\\" in filename or "\x00" in filename:
+            raise MediaResolutionError(f"attachment filename '{filename}' is unsafe")
+
+    def _validate_attachment_id(self, attachment_id):
+        if not isinstance(attachment_id, str) or not attachment_id:
+            raise MediaResolutionError("attachment ID must be a non-empty string")
+
+    def _filename_from_path(self, path):
+        if not isinstance(path, str):
+            raise MediaResolutionError("attachment path must be a string")
+
+        parts = path.split("/")
+        if len(parts) != 2 or parts[0] != "_attachments":
+            raise MediaResolutionError(f"attachment path '{path}' is outside _attachments")
+
+        filename = parts[1]
+        self._validate_filename(filename)
+
+        return filename
 
 
 class ADFToMarkdownConverter:

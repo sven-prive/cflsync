@@ -152,6 +152,8 @@ ADF media identifier ⇄ managed attachment ID ⇄ _attachments/filename
 The synchronization layer maintains that relationship in the page cache and
 performs the attachment API operations. A conversion fails instead of emitting
 a guessed local path when the relationship is absent or ambiguous.
+`MediaResolver` receives ordered `(filename, attachment ID)` manifest entries
+and exposes the two pure lookups `path_for()` and `id_for()`.
 
 ## Required tests
 

@@ -81,8 +81,8 @@ Attachments use relative Markdown URLs:
 ADF-to-GFM conversion rewrites resolved media and links to these paths. The
 reverse conversion recognizes only paths rooted at `_attachments/`; a
 `MediaResolver` maps them to Confluence attachment references. Other links stay
-ordinary links. Filenames are normalized to prevent traversal and duplicates
-are disambiguated deterministically.
+ordinary links. Filenames are validated to prevent traversal, and duplicate
+manifest names or attachment IDs are rejected as ambiguous.
 
 On pull, the remote attachment manifest determines managed local files. On
 push, existing managed files are uploaded or updated and previously managed
