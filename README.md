@@ -19,7 +19,7 @@ as publishing platform rather than authoring environment.
 
 - Python 3.11 or later.
 - [uv](https://docs.astral.sh/uv/) for Python dependency management.
-- Pandoc for the planned GFM and Pandoc-AST conversion boundary.
+- Pandoc for the GFM and Pandoc-AST conversion boundary.
 
 ## Commands:
 
