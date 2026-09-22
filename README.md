@@ -7,8 +7,10 @@ as publishing platform rather than authoring environment.
 
 ## Documentation
 
-- [Design](DESIGN.md): target behavior, storage layout, synchronization rules,
-  and implementation constraints.
+- [Design](DESIGN.md): implementation constraints, scope, and architectural
+  decisions.
+- [Specification](SPEC.md): command behavior, local storage, and
+  synchronization rules.
 - [Mapping](MAPPING.md): `atlas_doc_format` to Pandoc AST mapping and opaque
   retention strategy.
 - [Plan](PLAN.md): implementation roadmap.
