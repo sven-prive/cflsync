@@ -6,12 +6,17 @@
 # Delay annotation evaluation so nested type references work on Python 3.11+.
 from __future__ import annotations
 
-import sys
 import json
+import os
+import re
+import sys
 import urllib
-from getpass import getpass
 from argparse import ArgumentParser
+from collections.abc import Mapping
+from getpass import getpass
 from pathlib import Path
+from tempfile import NamedTemporaryFile
+
 from platformdirs import user_config_dir
 
 
@@ -20,6 +25,279 @@ class SyncError(Exception):
         super().__init__(message)
 
 
+class StateError(SyncError):
+    """Raised when a page synchronization state file is invalid."""
+
+
+class PageMetadata:
+    """The last synchronized state of one Confluence page."""
+
+    def __init__(
+        self, id: str, title: str, directory: str, version: int, content_hash: str
+    ) -> None:
+        if not id or not id.isdigit():
+            raise StateError("page.id must be a numeric identifier")
+        if not title:
+            raise StateError("page.title must be a non-empty string")
+        if not directory:
+            raise StateError("page.directory must be a non-empty string")
+        if version < 1:
+            raise StateError("page.version must be a positive integer")
+        if re.fullmatch(r"[0-9a-f]{64}", content_hash) is None:
+            raise StateError("page.content_hash must be a SHA-256 hexadecimal digest")
+
+        self.id = id
+        self.title = title
+        self.directory = directory
+        self.version = version
+        self.content_hash = content_hash
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, PageMetadata):
+            return NotImplemented
+
+        return (
+            self.id,
+            self.title,
+            self.directory,
+            self.version,
+            self.content_hash,
+        ) == (
+            other.id,
+            other.title,
+            other.directory,
+            other.version,
+            other.content_hash,
+        )
+
+    def to_json(self) -> dict[str, object]:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "directory": self.directory,
+            "version": self.version,
+            "content_hash": self.content_hash,
+        }
+
+    @classmethod
+    def from_json(cls, value: object) -> "PageMetadata":
+        """Validate and decode page metadata from a state JSON value."""
+        if not isinstance(value, Mapping):
+            raise StateError("page must be an object")
+        try:
+            id = value["id"]
+            title = value["title"]
+            directory = value["directory"]
+            version = value["version"]
+            content_hash = value["content_hash"]
+        except KeyError as error:
+            raise StateError(f"page.{error.args[0]} is required") from error
+        if not isinstance(id, str):
+            raise StateError("page.id must be a string")
+        if not isinstance(title, str):
+            raise StateError("page.title must be a string")
+        if not isinstance(directory, str):
+            raise StateError("page.directory must be a string")
+        if type(version) is not int:
+            raise StateError("page.version must be an integer")
+        if not isinstance(content_hash, str):
+            raise StateError("page.content_hash must be a string")
+
+        return cls(id, title, directory, version, content_hash)
+
+
+class AttachmentMetadata:
+    """The last synchronized state of one managed attachment."""
+
+    def __init__(self, id: str, version: int, content_hash: str) -> None:
+        if not id or not id.isdigit():
+            raise StateError("attachment.id must be a numeric identifier")
+        if version < 1:
+            raise StateError("attachment.version must be a positive integer")
+        if re.fullmatch(r"[0-9a-f]{64}", content_hash) is None:
+            raise StateError(
+                "attachment.content_hash must be a SHA-256 hexadecimal digest"
+            )
+
+        self.id = id
+        self.version = version
+        self.content_hash = content_hash
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, AttachmentMetadata):
+            return NotImplemented
+
+        return (self.id, self.version, self.content_hash) == (
+            other.id,
+            other.version,
+            other.content_hash,
+        )
+
+    def to_json(self) -> dict[str, object]:
+        return {
+            "id": self.id,
+            "version": self.version,
+            "content_hash": self.content_hash,
+        }
+
+    @classmethod
+    def from_json(cls, value: object, name: str) -> "AttachmentMetadata":
+        """Validate and decode attachment metadata from a state JSON value."""
+        if not isinstance(value, Mapping):
+            raise StateError(f"attachment '{name}' must be an object")
+        try:
+            id = value["id"]
+            version = value["version"]
+            content_hash = value["content_hash"]
+        except KeyError as error:
+            raise StateError(
+                f"attachment '{name}'.{error.args[0]} is required"
+            ) from error
+        if not isinstance(id, str):
+            raise StateError(f"attachment '{name}'.id must be a string")
+        if type(version) is not int:
+            raise StateError(f"attachment '{name}'.version must be an integer")
+        if not isinstance(content_hash, str):
+            raise StateError(f"attachment '{name}'.content_hash must be a string")
+
+        return cls(id, version, content_hash)
+
+
+class PageState:
+    """Format-1 synchronization state for one managed page."""
+
+    def __init__(
+        self,
+        page: PageMetadata,
+        attachments: Mapping[str, AttachmentMetadata],
+        format: int = 1,
+    ) -> None:
+        if format != 1:
+            raise StateError("unsupported state format")
+
+        copied_attachments: dict[str, AttachmentMetadata] = {}
+        for name, attachment in attachments.items():
+            if not name:
+                raise StateError("attachment name must be a non-empty string")
+            copied_attachments[name] = attachment
+
+        self.page = page
+        self.attachments = copied_attachments
+        self.format = format
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, PageState):
+            return NotImplemented
+
+        return (
+            self.page,
+            self.attachments,
+            self.format,
+        ) == (
+            other.page,
+            other.attachments,
+            other.format,
+        )
+
+    def to_json(self) -> dict[str, object]:
+        return {
+            "format": self.format,
+            "page": self.page.to_json(),
+            "attachments": {
+                name: attachment.to_json()
+                for name, attachment in self.attachments.items()
+            },
+        }
+
+    @classmethod
+    def from_json(cls, value: object) -> "PageState":
+        """Validate and decode a format-1 state JSON value."""
+        if not isinstance(value, Mapping):
+            raise StateError("state must be an object")
+        try:
+            state_format = value["format"]
+            page_value = value["page"]
+            attachment_values = value["attachments"]
+        except KeyError as error:
+            raise StateError(f"state.{error.args[0]} is required") from error
+        if type(state_format) is not int:
+            raise StateError("state.format must be an integer")
+        if not isinstance(attachment_values, Mapping):
+            raise StateError("attachments must be an object")
+
+        attachments: dict[str, AttachmentMetadata] = {}
+        for name, attachment_value in attachment_values.items():
+            if not isinstance(name, str) or not name:
+                raise StateError("attachment name must be a non-empty string")
+            attachments[name] = AttachmentMetadata.from_json(attachment_value, name)
+
+        return cls(
+            page=PageMetadata.from_json(page_value),
+            attachments=attachments,
+            format=state_format,
+        )
+
+    @classmethod
+    def load(cls, workarea: "Workarea", page_id: str) -> "PageState":
+        """Load the validated state file whose cache key is *page_id*."""
+        try:
+            path = workarea.cache_path(page_id)
+        except ValueError as error:
+            raise StateError(str(error)) from error
+
+        try:
+            with path.open(encoding="utf-8") as state_file:
+                value = json.load(state_file)
+        except FileNotFoundError as error:
+            raise StateError(f"state file does not exist for page '{page_id}'") from error
+        except json.JSONDecodeError as error:
+            raise StateError(f"invalid JSON in state file for page '{page_id}'") from error
+        except OSError as error:
+            raise StateError(f"cannot read state file for page '{page_id}': {error}") from error
+
+        state = cls.from_json(value)
+        if state.page.id != page_id:
+            raise StateError(
+                f"state file '{path.name}' does not match page.id '{state.page.id}'"
+            )
+
+        return state
+
+    def save(self, workarea: "Workarea") -> None:
+        """Atomically persist this state under its page-ID cache key."""
+        try:
+            path = workarea.cache_path(self.page.id)
+        except ValueError as error:
+            raise StateError(str(error)) from error
+
+        temporary_path: Path | None = None
+        try:
+            with NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=path.parent,
+                prefix=f".{self.page.id}.",
+                suffix=".tmp",
+                delete=False,
+            ) as temporary_file:
+                temporary_path = Path(temporary_file.name)
+                temporary_path.chmod(0o600)
+                json.dump(self.to_json(), temporary_file, indent=2)
+                temporary_file.write("\n")
+                temporary_file.flush()
+                os.fsync(temporary_file.fileno())
+
+            os.replace(temporary_path, path)
+        except OSError as error:
+            raise StateError(
+                f"cannot write state file for page '{self.page.id}': {error}"
+            ) from error
+        finally:
+            if temporary_path is not None:
+                try:
+                    temporary_path.unlink()
+                except FileNotFoundError:
+                    pass
 class Config:
     class Profile:
         def __init__(self, hostname: str, username: str, apitoken: str):

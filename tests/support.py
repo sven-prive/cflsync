@@ -10,11 +10,12 @@ from collections import deque
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
+import hashlib
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from cflsync import Workarea
+from cflsync import AttachmentMetadata, PageMetadata, PageState, Workarea
 
 
 @contextmanager
@@ -23,6 +24,26 @@ def temporary_workarea(profile: str = "default") -> Iterator[Workarea]:
     with TemporaryDirectory(prefix="cflsync-test-") as temporary_dir:
         root = Path(temporary_dir)
         yield Workarea.init(root, profile)
+
+
+def example_page_state(page_id: str = "123456") -> PageState:
+    """Return a valid format-1 state for tests that need persisted state."""
+    return PageState(
+        page=PageMetadata(
+            id=page_id,
+            title="Example page",
+            directory="Example page",
+            version=17,
+            content_hash=hashlib.sha256(b"page").hexdigest(),
+        ),
+        attachments={
+            "diagram.png": AttachmentMetadata(
+                id="987654",
+                version=3,
+                content_hash=hashlib.sha256(b"attachment").hexdigest(),
+            )
+        },
+    )
 
 
 @dataclass(frozen=True)
