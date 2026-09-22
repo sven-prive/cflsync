@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from cflsync import AttachmentMetadata, PageMetadata, PageState, Workarea
+from cflsync import AttachmentMetadata, PageMetadata, PageState, TransportResponse, Workarea
 
 
 @contextmanager
@@ -39,18 +39,14 @@ class RecordedRequest:
     """A request received by :class:`MockTransport`."""
 
     method: str
-    url: str
+    path: str
+    parameters: dict[str, str]
     headers: dict[str, str]
     body: bytes | None
 
 
-@dataclass(frozen=True)
-class MockResponse:
+class MockResponse(TransportResponse):
     """A response returned by :class:`MockTransport`."""
-
-    status: int
-    headers: dict[str, str]
-    body: bytes
 
     @classmethod
     def from_json(cls, value: object, status: int = 200) -> "MockResponse":
@@ -60,18 +56,28 @@ class MockResponse:
 class MockTransport:
     """Queue responses and record requests for API-client tests."""
 
-    def __init__(self, responses: Iterable[MockResponse] = ()) -> None:
+    def __init__(self, responses: Iterable[TransportResponse] = ()) -> None:
         self.requests: list[RecordedRequest] = []
+        self.clone_prefixes: list[str | None] = []
         self._responses = deque(responses)
 
-    def enqueue(self, response: MockResponse) -> None:
+    def enqueue(self, response: TransportResponse) -> None:
         self._responses.append(response)
 
-    def request(
-            self, method: str, url: str, *, headers: Mapping[str, str] | None = None, body: bytes | None = None) -> MockResponse:
-        self.requests.append(RecordedRequest(method, url, dict(headers or {}), body))
+    def clone(self, prefix: str | None = None) -> "MockTransport":
+        self.clone_prefixes.append(prefix)
+        return self
+
+    def make_request(
+            self,
+            method: str,
+            path: str = "",
+            parameters: Mapping[str, str] | None = None,
+            headers: Mapping[str, str] | None = None,
+            body: bytes | None = None) -> TransportResponse:
+        self.requests.append(RecordedRequest(method, path, dict(parameters or {}), dict(headers or {}), body))
         if not self._responses:
-            raise AssertionError(f"unexpected request: {method} {url}")
+            raise AssertionError(f"unexpected request: {method} {path}")
 
         return self._responses.popleft()
 
