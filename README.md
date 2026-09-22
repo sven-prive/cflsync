@@ -36,6 +36,14 @@ local `page.md` file, or a managed page directory.
 Use `cflsync --help` for top-level help, `cflsync page --help` for page-command
 help, and `cflsync page COMMAND --help` for a command's arguments.
 
+## Testing
+
+Run the complete test suite with:
+
+```console
+uv run python -m unittest discover -s tests -v
+```
+
 ## License
 
 This project is licensed under the [Mozilla Public License 2.0](LICENSE.md).
