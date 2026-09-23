@@ -93,6 +93,9 @@ class ADFToMarkdownConverter:
         if node_type == "orderedList":
             return self._convert_ordered_list(node)
 
+        if node_type == "taskList":
+            return self._convert_task_list(node)
+
         if node_type == "codeBlock":
             return self._convert_code_block(node)
 
@@ -154,6 +157,67 @@ class ADFToMarkdownConverter:
             return self._convert_opaque(node)
 
         return {"t": "OrderedList", "c": [[order, {"t": "Decimal"}, {"t": "Period"}], items]}
+
+    def _convert_task_list(self, node):
+        task_list = self._convert_task_list_content(node)
+        if task_list is None:
+            return self._convert_opaque(node)
+
+        return task_list
+
+    def _convert_task_list_content(self, node):
+        content = node.get("content")
+        if not isinstance(content, list) or not content:
+            return None
+
+        items = []
+        for child in content:
+            if not isinstance(child, Mapping):
+                return None
+
+            if child.get("type") == "taskItem":
+                item = self._convert_task_item(child)
+                if item is None:
+                    return None
+
+                items.append(item)
+                continue
+
+            if child.get("type") == "taskList":
+                if not items:
+                    return None
+
+                nested = self._convert_task_list_content(child)
+                if nested is None:
+                    return None
+
+                items[-1].append(nested)
+                continue
+
+            return None
+
+        return {"t": "BulletList", "c": items}
+
+    def _convert_task_item(self, node):
+        attrs = node.get("attrs")
+        if not isinstance(attrs, Mapping):
+            return None
+
+        state = attrs.get("state")
+        marker = {"TODO": "☐", "DONE": "☒"}.get(state)
+        if marker is None:
+            return None
+
+        inlines = self._convert_inlines(node)
+        if inlines is None:
+            return None
+
+        content = [{"t": "Str", "c": marker}]
+        if inlines:
+            content.append({"t": "Space"})
+            content.extend(inlines)
+
+        return [{"t": "Plain", "c": content}]
 
     def _convert_code_block(self, node):
         attrs = node.get("attrs", {})
@@ -744,7 +808,70 @@ class MarkdownToADFConverter:
         if not isinstance(items, list):
             raise ConversionError("Pandoc bullet list content must be a list")
 
+        task_list = self._convert_task_list(pandoc_block)
+        if task_list is not None:
+            return task_list
+
         return {"type": "bulletList", "content": self._convert_list_items(items)}
+
+    def _convert_task_list(self, pandoc_block):
+        if not self._has_fields(pandoc_block, {"t", "c"}):
+            return None
+
+        items = pandoc_block.get("c")
+        if not isinstance(items, list) or not items:
+            return None
+
+        content = []
+        for item in items:
+            converted = self._convert_task_item(item)
+            if converted is None:
+                return None
+
+            content.extend(converted)
+
+        return {"type": "taskList", "content": content}
+
+    def _convert_task_item(self, blocks):
+        if not isinstance(blocks, list) or not blocks:
+            return None
+
+        first = blocks[0]
+        if not isinstance(first, Mapping) or first.get("t") != "Plain" or not self._has_fields(first, {"t", "c"}):
+            return None
+
+        inlines = first.get("c")
+        if not isinstance(inlines, list) or not inlines or not isinstance(inlines[0], Mapping):
+            return None
+
+        marker = inlines[0]
+        if marker.get("t") != "Str" or not self._has_fields(marker, {"t", "c"}):
+            return None
+
+        state = {"☐": "TODO", "☒": "DONE"}.get(marker.get("c"))
+        if state is None:
+            return None
+
+        text_inlines = inlines[1:]
+        if text_inlines:
+            first_text = text_inlines.pop(0)
+            if not isinstance(first_text, Mapping) or first_text.get("t") != "Space" or not self._has_fields(first_text, {"t"}):
+                return None
+
+        task_item = {"type": "taskItem", "attrs": {"state": state}, "content": self._convert_inline_nodes(text_inlines)}
+
+        nested_blocks = blocks[1:]
+        if not nested_blocks:
+            return [task_item]
+
+        if len(nested_blocks) != 1 or not isinstance(nested_blocks[0], Mapping):
+            return None
+
+        nested = self._convert_task_list(nested_blocks[0])
+        if nested is None:
+            return None
+
+        return [task_item, nested]
 
     def _convert_ordered_list(self, pandoc_block):
         if not self._has_fields(pandoc_block, {"t", "c"}):

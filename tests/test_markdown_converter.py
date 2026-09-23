@@ -191,6 +191,38 @@ class TestMarkdownToADFConverter(unittest.TestCase):
                                                                 "type": "rule"}, ], },
         )
 
+    def test_maps_gfm_task_lists_without_local_ids(self) -> None:
+        document = MarkdownToADFConverter(PandocRunner()).convert("- [ ] Parent\n  - [x] Child\n")
+
+        self.assertEqual(
+            document, {
+                "type":
+                "doc",
+                "version":
+                1,
+                "content": [
+                    {
+                        "type":
+                        "taskList",
+                        "content": [
+                            {
+                                "type": "taskItem",
+                                "attrs": {
+                                    "state": "TODO"},
+                                "content": [{
+                                    "type": "text",
+                                    "text": "Parent"}]}, {
+                                        "type":
+                                        "taskList",
+                                        "content": [
+                                            {
+                                                "type": "taskItem",
+                                                "attrs": {
+                                                    "state": "DONE"},
+                                                "content": [{
+                                                    "type": "text",
+                                                    "text": "Child"}]}]}]}]})
+
     def test_decodes_an_opaque_marker(self) -> None:
         node = {
             "type": "panel",

@@ -62,6 +62,7 @@ heading that no longer matches, because push does not rename pages.
 | `blockquote` | `BlockQuote` | `blockquote` |
 | `bulletList` and `listItem` | `BulletList` | `bulletList` and `listItem` |
 | `orderedList` and `listItem` | `OrderedList` | `orderedList` and `listItem` |
+| `taskList` and `taskItem` | `BulletList` beginning each item with `☐` or `☒` | `taskList` and `taskItem` |
 | `codeBlock` | `CodeBlock`; `attrs.language` becomes its language class | `codeBlock` with `attrs.language` |
 | `rule` | `HorizontalRule` | `rule` |
 
@@ -76,6 +77,11 @@ fallback; malformed document structure may instead raise a conversion error.
 
 Blockquotes map to Markdown `>` blocks and back to ADF `blockquote` nodes,
 with their contained blocks and inline formatting converted recursively.
+
+Task lists map directly to GFM task lists: `TODO` becomes `- [ ]` and `DONE`
+becomes `- [x]`. Pandoc represents these markers as leading `☐` and `☒` inline
+nodes in a `BulletList`. A nested task list remains nested under its preceding
+task item. Reverse conversion emits no task-list or task-item `localId`.
 
 ## Direct inline mappings
 
@@ -207,7 +213,7 @@ retains the nearest valid ancestor rather than changing the document shape.
 ### Initially opaque ADF features
 
 - `inlineCard`, custom emoji, and unsupported media.
-- `panel`, `expand`, `nestedExpand`, task and decision lists, layouts, and
+- `panel`, `expand`, `nestedExpand`, decision lists, layouts, and
   `extensionFrame`.
 - `extension`, `bodiedExtension`, `multiBodiedExtension`, sync blocks, and
   third-party Confluence macro nodes.

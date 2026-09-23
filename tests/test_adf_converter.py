@@ -253,6 +253,88 @@ class TestADFToMarkdownConverter(unittest.TestCase):
         self.assertEqual(bodies[0][1:3], [0, []])
         self.assertEqual(len(bodies[0][3][0][1]), 2)
 
+    def test_maps_a_task_list_to_pandoc_checkboxes(self) -> None:
+        pandoc = RecordingPandoc()
+        task_list = {
+            "type":
+            "taskList",
+            "attrs": {
+                "localId": "list-1"},
+            "content": [
+                {
+                    "type": "taskItem",
+                    "attrs": {
+                        "localId": "item-1",
+                        "state": "TODO"},
+                    "content": [{
+                        "type": "text",
+                        "text": "Open"}]}, {
+                            "type": "taskItem",
+                            "attrs": {
+                                "localId": "item-2",
+                                "state": "DONE"},
+                            "content": [{
+                                "type": "text",
+                                "text": "Done"}]}]}
+
+        ADFToMarkdownConverter(pandoc).convert({"type": "doc", "version": 1, "content": [task_list]})
+
+        self.assertEqual(
+            pandoc.pandoc["blocks"][0], {
+                "t":
+                "BulletList",
+                "c": [
+                    [{
+                        "t": "Plain",
+                        "c": [{
+                            "t": "Str",
+                            "c": "☐"}, {
+                                "t": "Space"}, {
+                                    "t": "Str",
+                                    "c": "Open"}]}],
+                    [{
+                        "t": "Plain",
+                        "c": [{
+                            "t": "Str",
+                            "c": "☒"}, {
+                                "t": "Space"}, {
+                                    "t": "Str",
+                                    "c": "Done"}]}]]})
+
+    def test_writes_a_nested_task_list_as_gfm_checkboxes(self) -> None:
+        document = {
+            "type":
+            "doc",
+            "version":
+            1,
+            "content": [
+                {
+                    "type":
+                    "taskList",
+                    "content": [
+                        {
+                            "type": "taskItem",
+                            "attrs": {
+                                "state": "TODO"},
+                            "content": [{
+                                "type": "text",
+                                "text": "Parent"}]},
+                        {
+                            "type":
+                            "taskList",
+                            "content":
+                            [{
+                                "type": "taskItem",
+                                "attrs": {
+                                    "state": "DONE"},
+                                "content": [{
+                                    "type": "text",
+                                    "text": "Child"}]}]}]}]}
+
+        markdown = ADFToMarkdownConverter(PandocRunner()).convert(document)
+
+        self.assertEqual(markdown, "- [ ] Parent\n  - [x] Child\n")
+
     def test_retains_a_structurally_invalid_table(self) -> None:
         pandoc = RecordingPandoc()
         table = {"type": "table", "content": [{"type": "tableRow", "content": [{"type": "paragraph", "content": []}]}]}
