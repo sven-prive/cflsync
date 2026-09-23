@@ -7,13 +7,12 @@ as publishing platform rather than authoring environment.
 
 ## Documentation
 
-- [Design](DESIGN.md): implementation constraints, scope, and architectural
+- [Design](doc/DESIGN.md): implementation constraints, scope, and architectural
   decisions.
-- [Specification](SPEC.md): command behavior, local storage, and
+- [Specification](doc/SPEC.md): command behavior, local storage, and
   synchronization rules.
-- [Mapping](MAPPING.md): `atlas_doc_format` to Pandoc AST mapping and opaque
-  retention strategy.
-- [Plan](PLAN.md): implementation roadmap.
+- [Mapping](doc/MAPPING.md): `atlas_doc_format` to Pandoc AST mapping and
+  opaque retention strategy.
 
 ## Prerequisites
 
@@ -98,5 +97,7 @@ reports both sides unchanged, and the page history contains no version other
 than those the commands above produced. Delete the page afterwards.
 
 ## License
+
+Copyright (c) 2026 Sven Rosiers.
 
 This project is licensed under the [Mozilla Public License 2.0](LICENSE.md).

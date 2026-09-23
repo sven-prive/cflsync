@@ -1,6 +1,9 @@
 [project]
 name = "cflsync"
 version = "0.1.0"
+authors = [
+    { name = "Sven Rosiers", email = "github-sro@rosiers.info" },
+]
 license = "MPL-2.0"
 requires-python = ">=3.11"
 dependencies = [
@@ -14,6 +17,7 @@ dev = [
 
 [tool.yapf]
 based_on_style = "pep8"
+blank_line_before_module_docstring = true
 column_limit = 132
 indent_width = 4
 continuation_indent_width = 4
