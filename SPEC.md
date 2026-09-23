@@ -84,10 +84,12 @@ reverse conversion recognizes only paths rooted at `_attachments/`; a
 ordinary links. Filenames are validated to prevent traversal, and duplicate
 manifest names or attachment IDs are rejected as ambiguous.
 
-On pull, the remote attachment manifest determines managed local files. On
-push, existing managed files are uploaded or updated and previously managed
-files removed locally are deleted remotely. Attachments outside the managed
-manifest must not be deleted.
+On pull, the remote attachment manifest determines managed local files. A local
+file under `_attachments/` that `page.md` links to also becomes managed, so new
+attachments can be introduced locally; files that nothing links to stay
+unmanaged. On push, managed files are uploaded or updated and previously
+managed files removed locally are deleted remotely. Attachments outside the
+managed set must not be deleted.
 
 ## Per-page cache entry
 

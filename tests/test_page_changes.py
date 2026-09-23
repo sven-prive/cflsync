@@ -94,7 +94,7 @@ class TestPageInspector(unittest.TestCase):
                     self.assertEqual(changes.attachments_locally, ["diagram.png"])
                     self.assertFalse(changes.page_locally)
 
-    def test_ignores_unmanaged_local_files(self) -> None:
+    def test_ignores_unreferenced_local_files(self) -> None:
         with temporary_workarea() as workarea:
             directory, state = self._page(workarea)
             (directory / "_attachments/notes.txt").write_text("unmanaged")
@@ -103,6 +103,38 @@ class TestPageInspector(unittest.TestCase):
             changes = self._inspect(directory, state)
 
             self.assertFalse(changes.locally)
+
+    def test_reports_a_referenced_new_attachment_as_a_local_change(self) -> None:
+        with temporary_workarea() as workarea:
+            directory, state = self._page(workarea)
+            (directory / "_attachments/added.png").write_bytes(b"ADDED")
+            (directory / "_attachments/ignored.png").write_bytes(b"IGNORED")
+            markdown = f"{MARKDOWN}\n![Added](_attachments/added.png)\n"
+            (directory / "page.md").write_text(markdown, encoding="utf-8")
+            state.page.content_hash = self.inspector.content_hash(markdown)
+
+            changes = self._inspect(directory, state)
+
+            self.assertEqual(changes.attachments_locally, ["added.png"])
+            self.assertFalse(changes.page_locally)
+
+    def test_ignores_references_without_a_local_file_or_a_safe_name(self) -> None:
+        for reference in ["_attachments/absent.png", "_attachments/../escape.png", "https://example.test/remote.png"]:
+            with self.subTest(reference=reference):
+                with temporary_workarea() as workarea:
+                    directory, state = self._page(workarea)
+                    markdown = f"{MARKDOWN}\n![Linked]({reference})\n"
+                    (directory / "page.md").write_text(markdown, encoding="utf-8")
+                    state.page.content_hash = self.inspector.content_hash(markdown)
+
+                    changes = self._inspect(directory, state)
+
+                    self.assertEqual(changes.attachments_locally, [])
+
+    def test_lists_referenced_attachment_names(self) -> None:
+        markdown = "[Report](_attachments/report.pdf) ![Diagram](_attachments/diagram.png) [Other](https://example.test)\n"
+
+        self.assertEqual(self.inspector.referenced_attachments(markdown), ["report.pdf", "diagram.png"])
 
     def test_reports_remote_page_version_and_title_changes(self) -> None:
         for page in [remote_page(version=18), remote_page(title="Renamed page")]:

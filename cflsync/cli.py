@@ -216,7 +216,34 @@ class PageStatusCommand:
         return self.run(args.page_ref)
 
     def run(self, page_ref: str) -> int:
-        raise SyncError("page status is not implemented")
+        try:
+            workarea, api = _open_workarea()
+            reference = PageRef.resolve(page_ref, workarea, api)
+            cache_path = workarea.cache_path(reference.page_id)
+            if not cache_path.exists():
+                raise SyncError(f"page '{reference.page_id}' is not managed in this workarea")
+
+            state = PageState.load(cache_path)
+            page = api.get_page(reference.page_id)
+            # A missing page directory is a local change, not a lookup failure.
+            directory = workarea.page_directory(state, must_exist=False)
+            changes = PageInspector(PandocRunner()).inspect(directory, state, page, page.attachments())
+        except (OSError, UnicodeError) as error:
+            raise SyncError(f"cannot report page status: {error}") from error
+
+        print(f"Page '{state.page.id}' ({state.page.title})")
+        print(f"  local:  {self._summary(changes.page_locally, 'page.md', changes.attachments_locally)}")
+        print(f"  remote: {self._summary(changes.page_remotely, 'page', changes.attachments_remotely)}")
+
+        return 0
+
+    def _summary(self, page_changed, page_label, attachment_names):
+        changed = [page_label] if page_changed else []
+        changed.extend(f"_attachments/{name}" for name in attachment_names)
+        if not changed:
+            return "unchanged"
+
+        return "changed: " + ", ".join(changed)
 
 
 class PageCommand:

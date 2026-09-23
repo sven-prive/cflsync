@@ -8,7 +8,11 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+from collections.abc import Iterator, Mapping
+
 from .workarea import MediaResolver, PageState
+
+ATTACHMENTS_PREFIX = "_attachments/"
 
 
 class PageChanges:
@@ -44,28 +48,43 @@ class PageInspector:
 
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
+    def referenced_attachments(self, markdown: str) -> list[str]:
+        """Return the managed attachment filenames that *markdown* links to."""
+        names = []
+        for target in _link_targets(self._pandoc_runner.gfm_to_pandoc(markdown)):
+            if not target.startswith(ATTACHMENTS_PREFIX):
+                continue
+
+            name = target[len(ATTACHMENTS_PREFIX):]
+            if name and name not in {".", ".."} and "/" not in name and "\\" not in name:
+                names.append(name)
+
+        return names
+
     def inspect(self, directory: Path, state: PageState, page, attachments) -> PageChanges:
         """Report local and remote changes for one cached page."""
-        return PageChanges(
-            self._page_changed_locally(directory, state), self._attachments_changed_locally(directory, state),
-            self._page_changed_remotely(page, state), self._attachments_changed_remotely(attachments, state))
-
-    def _page_changed_locally(self, directory, state):
         path = directory / "page.md"
-        if not path.is_file():
-            return True
+        markdown = path.read_text(encoding="utf-8") if path.is_file() else None
 
-        return self.content_hash(path.read_text(encoding="utf-8")) != state.page.content_hash
+        return PageChanges(
+            markdown is None or self.content_hash(markdown) != state.page.content_hash,
+            self._attachments_changed_locally(directory, state, markdown), self._page_changed_remotely(page, state),
+            self._attachments_changed_remotely(attachments, state))
 
-    def _attachments_changed_locally(self, directory, state):
+    def _attachments_changed_locally(self, directory, state, markdown):
         MediaResolver((name, attachment.id) for name, attachment in state.attachments.items())
-        changed = []
+        changed = set()
         for name, attachment in state.attachments.items():
             path = directory / "_attachments" / name
             if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != attachment.content_hash:
-                changed.append(name)
+                changed.add(name)
 
-        return changed
+        # A referenced local file becomes managed, so page.md can introduce attachments.
+        for name in self.referenced_attachments(markdown or ""):
+            if name not in state.attachments and (directory / "_attachments" / name).is_file():
+                changed.add(name)
+
+        return sorted(changed)
 
     def _page_changed_remotely(self, page, state):
         return page.version != state.page.version or page.title != state.page.title
@@ -79,6 +98,23 @@ class PageInspector:
                 changed.append(name)
 
         return changed
+
+
+def _link_targets(value: object) -> Iterator[str]:
+    """Yield the target of every Pandoc link and image in *value*."""
+    if isinstance(value, Mapping):
+        if value.get("t") in {"Image", "Link"}:
+            content = value.get("c")
+            if isinstance(content, list) and len(content) == 3 and isinstance(content[2], list) and content[2]:
+                target = content[2][0]
+                if isinstance(target, str):
+                    yield target
+
+        value = list(value.values())
+
+    if isinstance(value, list):
+        for item in value:
+            yield from _link_targets(item)
 
 
 # vim: set ts=4 sw=4 et tw=132:
