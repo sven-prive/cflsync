@@ -9,9 +9,12 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, mkdtemp
+from typing import Self
+from urllib.parse import quote
 
 from .errors import SyncError
 
@@ -251,35 +254,31 @@ class PageState:
         return cls(page=PageMetadata.from_json(page_value), attachments=attachments, format=state_format)
 
     @classmethod
-    def load(cls, workarea: "Workarea", page_id: str) -> "PageState":
-        """Load the validated state file whose cache key is *page_id*."""
-        try:
-            path = workarea.cache_path(page_id)
-        except ValueError as error:
-            raise StateError(str(error)) from error
+    def load(cls, path: Path) -> Self:
+        """Load the validated state file at *path*."""
+        if path.suffix != ".json" or not path.stem.isdigit():
+            raise StateError(f"state path '{path}' must have a numeric cache filename")
 
         try:
             with path.open(encoding="utf-8") as state_file:
                 value = json.load(state_file)
         except FileNotFoundError as error:
-            raise StateError(f"state file does not exist for page '{page_id}'") from error
+            raise StateError(f"state file does not exist for page '{path.stem}'") from error
         except json.JSONDecodeError as error:
-            raise StateError(f"invalid JSON in state file for page '{page_id}'") from error
+            raise StateError(f"invalid JSON in state file for page '{path.stem}'") from error
         except OSError as error:
-            raise StateError(f"cannot read state file for page '{page_id}': {error}") from error
+            raise StateError(f"cannot read state file for page '{path.stem}': {error}") from error
 
         state = cls.from_json(value)
-        if state.page.id != page_id:
+        if state.page.id != path.stem:
             raise StateError(f"state file '{path.name}' does not match page.id '{state.page.id}'")
 
-        return state
+        return cls(state.page, state.attachments, state.format)
 
-    def save(self, workarea: "Workarea") -> None:
+    def save(self, path: Path) -> None:
         """Atomically persist this state under its page-ID cache key."""
-        try:
-            path = workarea.cache_path(self.page.id)
-        except ValueError as error:
-            raise StateError(str(error)) from error
+        if path.suffix != ".json" or path.stem != self.page.id:
+            raise StateError(f"state path '{path}' does not match page.id '{self.page.id}'")
 
         temporary_path: Path | None = None
         try:
@@ -365,31 +364,20 @@ class Workarea:
 
         return self.cache_dir / f"{page_id}.json"
 
-    def page_states(self) -> dict[str, PageState]:
-        """Return every validated page state, ordered by numeric page ID."""
+    def page_state_paths(self) -> dict[str, Path]:
+        """Return every numeric page-ID cache path, ordered by page ID."""
         try:
             cache_paths = sorted(self.cache_dir.glob("*.json"), key=lambda path: int(path.stem))
         except ValueError as error:
             raise StateError("cache contains a non-numeric page-state filename") from error
 
-        states: dict[str, PageState] = {}
-        directories: dict[str, str] = {}
+        paths: dict[str, Path] = {}
         for cache_path in cache_paths:
             if not cache_path.is_file():
                 raise StateError(f"cache entry '{cache_path.name}' is not a file")
-            state = PageState.load(self, cache_path.stem)
-            assigned_page_id = directories.get(state.page.directory)
-            if assigned_page_id is not None:
-                raise Workarea.Error(
-                    f"page directory '{state.page.directory}' is assigned to both '{assigned_page_id}' and '{state.page.id}'")
-            directories[state.page.directory] = state.page.id
-            states[state.page.id] = state
+            paths[cache_path.stem] = cache_path
 
-        return states
-
-    def page_state(self, page_id: str) -> PageState:
-        """Return the validated cached state for *page_id*."""
-        return PageState.load(self, page_id)
+        return paths
 
     def page_directory(self, state: PageState) -> Path:
         """Return the existing managed directory recorded in *state*."""
@@ -404,11 +392,75 @@ class Workarea:
     def page_directory_target(self, state: PageState) -> Path:
         """Return a safe, unoccupied target path for a page directory."""
         directory = self._page_directory_path(state.page.directory)
-        cached_state = self.page_states().get(state.page.id)
+        cached_path = self.page_state_paths().get(state.page.id)
+        cached_state = PageState.load(cached_path) if cached_path is not None else None
         if directory.exists() and (cached_state is None or cached_state.page.directory != state.page.directory):
             raise Workarea.Error(f"page directory '{state.page.directory}' already exists")
 
         return directory
+
+    def page_directory_name(self, title: str) -> str:
+        """Return the deterministic safe directory name for a page title."""
+        if not isinstance(title, str) or not title:
+            raise Workarea.Error("page title must be a non-empty string")
+
+        return quote(title, safe=" -_").replace(".", "%2E")
+
+    def stage_page(self, directory_name: str, markdown: str, attachments: Mapping[str, bytes]) -> Path:
+        """Write one complete page representation to a hidden staging directory."""
+        self._page_directory_path(directory_name)
+        if not isinstance(markdown, str):
+            raise Workarea.Error("page Markdown must be a string")
+
+        staging = Path(mkdtemp(prefix=".cflsync-stage-", dir=self.root_dir))
+        try:
+            (staging / "page.md").write_text(markdown, encoding="utf-8")
+            attachment_directory = staging / "_attachments"
+            attachment_directory.mkdir()
+            for filename, body in attachments.items():
+                self._attachment_path(attachment_directory, filename).write_bytes(body)
+
+            return staging
+        except (OSError, TypeError) as error:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise Workarea.Error(f"cannot stage page directory: {error}") from error
+
+    def install_page(self, staging: Path, directory_name: str, replace: bool = False) -> Path:
+        """Atomically make a complete staged page directory visible."""
+        target = self._page_directory_path(directory_name)
+        if target.exists() and not replace:
+            raise Workarea.Error(f"page directory '{directory_name}' already exists")
+
+        try:
+            staging = staging.resolve()
+            staging.relative_to(self.root_dir)
+        except ValueError as error:
+            raise Workarea.Error("staging directory is outside the workarea") from error
+
+        if not staging.is_dir() or not (staging / "page.md").is_file() or not (staging / "_attachments").is_dir():
+            raise Workarea.Error("staging directory is incomplete")
+
+        if not target.exists():
+            try:
+                os.replace(staging, target)
+            except OSError as error:
+                raise Workarea.Error(f"cannot install page directory: {error}") from error
+
+            return target
+
+        backup = Path(mkdtemp(prefix=".cflsync-backup-", dir=self.root_dir))
+        backup.rmdir()
+        try:
+            os.replace(target, backup)
+            os.replace(staging, target)
+        except OSError as error:
+            if backup.exists() and not target.exists():
+                os.replace(backup, target)
+            raise Workarea.Error(f"cannot replace page directory: {error}") from error
+
+        shutil.rmtree(backup)
+
+        return target
 
     def _page_directory_path(self, directory_name: str) -> Path:
         directory = Path(directory_name)
@@ -424,6 +476,15 @@ class Workarea:
             raise Workarea.Error("page directory must be below the workarea root")
 
         return path
+
+    def _attachment_path(self, attachment_directory: Path, filename: str) -> Path:
+        if not isinstance(filename, str) or not filename or filename in {".", ".."}:
+            raise Workarea.Error("attachment filename must be a non-empty basename")
+
+        if "/" in filename or "\\" in filename or "\x00" in filename:
+            raise Workarea.Error(f"attachment filename '{filename}' is unsafe")
+
+        return attachment_directory / filename
 
     @classmethod
     def find(cls, p: Path):
@@ -460,7 +521,8 @@ class PageRef:
         if text.isdigit():
             return cls(api.get_page(text).id)
 
-        states = workarea.page_states()
+        paths = workarea.page_state_paths()
+        states = {page_id: PageState.load(path) for page_id, path in paths.items()}
         cached_ids = [state.page.id for state in states.values() if state.page.title == text]
         if cached_ids:
             return cls(_one_page_ref_id(cached_ids, f"cached title '{text}'"))
@@ -490,7 +552,8 @@ class PageRef:
         if len(relative_path.parts) != 1:
             raise PageRefError(f"page path '{path}' is not a managed page directory")
         directory_name = relative_path.name
-        states = workarea.page_states()
+        paths = workarea.page_state_paths()
+        states = {page_id: PageState.load(path) for page_id, path in paths.items()}
         page_id = next((state.page.id for state in states.values() if state.page.directory == directory_name), None)
         if page_id is None:
             raise PageRefError(f"page path '{path}' is not managed by cflsync")

@@ -34,7 +34,7 @@ class TestPageRefPaths(unittest.TestCase):
     def test_resolves_a_managed_page_file_without_an_api_request(self) -> None:
         with temporary_workarea() as workarea:
             state = example_page_state()
-            state.save(workarea)
+            state.save(workarea.cache_path(state.page.id))
             page_directory = workarea.root_dir / state.page.directory
             page_directory.mkdir()
             page_file = page_directory / "page.md"
@@ -50,7 +50,7 @@ class TestPageRefPaths(unittest.TestCase):
     def test_resolves_a_managed_page_directory_without_an_api_request(self) -> None:
         with temporary_workarea() as workarea:
             state = example_page_state()
-            state.save(workarea)
+            state.save(workarea.cache_path(state.page.id))
             page_directory = workarea.root_dir / state.page.directory
             page_directory.mkdir()
             (page_directory / "page.md").touch()
@@ -99,7 +99,7 @@ class TestPageRefTitles(unittest.TestCase):
     def test_resolves_a_unique_cached_title_without_an_api_request(self) -> None:
         with temporary_workarea() as workarea:
             state = example_page_state("123456", title="Example page")
-            state.save(workarea)
+            state.save(workarea.cache_path(state.page.id))
             api = FakeAPI()
 
             page_ref = PageRef.resolve("Example page", workarea, api, cwd=workarea.root_dir)
@@ -110,8 +110,10 @@ class TestPageRefTitles(unittest.TestCase):
 
     def test_rejects_an_ambiguous_cached_title_without_an_api_request(self) -> None:
         with temporary_workarea() as workarea:
-            example_page_state("123456", title="Duplicate", directory="First").save(workarea)
-            example_page_state("234567", title="Duplicate", directory="Second").save(workarea)
+            first = example_page_state("123456", title="Duplicate", directory="First")
+            second = example_page_state("234567", title="Duplicate", directory="Second")
+            first.save(workarea.cache_path(first.page.id))
+            second.save(workarea.cache_path(second.page.id))
             api = FakeAPI()
 
             with self.assertRaisesRegex(PageRefError, "123456.*234567"):

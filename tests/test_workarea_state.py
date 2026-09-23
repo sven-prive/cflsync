@@ -5,30 +5,30 @@
 
 import unittest
 
-from cflsync import StateError, Workarea
+from cflsync import PageState, StateError, Workarea
 from tests.support import example_page_state, temporary_workarea
 
 
 class TestWorkareaPageStates(unittest.TestCase):
 
-    def test_enumerates_all_valid_states_by_numeric_page_id(self) -> None:
+    def test_enumerates_all_page_state_paths_by_numeric_page_id(self) -> None:
         with temporary_workarea() as workarea:
             first = example_page_state("9", directory="First page")
             second = example_page_state("10", directory="Second page")
-            second.save(workarea)
-            first.save(workarea)
+            second.save(workarea.cache_path(second.page.id))
+            first.save(workarea.cache_path(first.page.id))
 
-            states = workarea.page_states()
+            paths = workarea.page_state_paths()
 
-            self.assertEqual(list(states), ["9", "10"])
-            self.assertEqual(states, {"9": first, "10": second})
+            self.assertEqual(list(paths), ["9", "10"])
+            self.assertEqual({page_id: PageState.load(path) for page_id, path in paths.items()}, {"9": first, "10": second})
 
     def test_rejects_a_malformed_cache_entry(self) -> None:
         with temporary_workarea() as workarea:
             (workarea.cache_dir / "not-a-page.json").write_text("{}", encoding="utf-8")
 
             with self.assertRaises(StateError):
-                workarea.page_states()
+                workarea.page_state_paths()
 
 
 class TestWorkareaPageDirectory(unittest.TestCase):
@@ -67,17 +67,16 @@ class TestWorkareaSafePaths(unittest.TestCase):
     def test_rejects_a_missing_page_state(self) -> None:
         with temporary_workarea() as workarea:
             with self.assertRaises(StateError):
-                workarea.page_state("123456")
+                PageState.load(workarea.cache_path("123456"))
 
-    def test_rejects_duplicate_page_directory_assignments(self) -> None:
+    def test_enumerates_duplicate_page_directory_assignments(self) -> None:
         with temporary_workarea() as workarea:
             first = example_page_state("123456", directory="Shared page")
             second = example_page_state("234567", directory="Shared page")
-            first.save(workarea)
-            second.save(workarea)
+            first.save(workarea.cache_path(first.page.id))
+            second.save(workarea.cache_path(second.page.id))
 
-            with self.assertRaises(Workarea.Error):
-                workarea.page_states()
+            self.assertEqual(list(workarea.page_state_paths()), ["123456", "234567"])
 
     def test_rejects_an_existing_title_directory_before_mutation(self) -> None:
         with temporary_workarea() as workarea:
@@ -90,6 +89,60 @@ class TestWorkareaSafePaths(unittest.TestCase):
                 workarea.page_directory_target(state)
 
             self.assertEqual(sorted(workarea.root_dir.iterdir()), before)
+
+
+class TestWorkareaMaterialization(unittest.TestCase):
+
+    def test_derives_safe_deterministic_page_directory_names(self) -> None:
+        with temporary_workarea() as workarea:
+            self.assertEqual(workarea.page_directory_name("Example page"), "Example page")
+            self.assertEqual(workarea.page_directory_name("Example/page"), "Example%2Fpage")
+            self.assertEqual(workarea.page_directory_name("."), "%2E")
+            self.assertEqual(workarea.page_directory_name("Example/page"), workarea.page_directory_name("Example/page"))
+
+    def test_stages_and_installs_one_complete_page(self) -> None:
+        with temporary_workarea() as workarea:
+            staging = workarea.stage_page("Example page", "# Example\n", {"diagram.png": b"PNG", "report.xlsx": b"XLSX"})
+
+            self.assertEqual((staging / "page.md").read_text(encoding="utf-8"), "# Example\n")
+            self.assertEqual((staging / "_attachments" / "diagram.png").read_bytes(), b"PNG")
+            self.assertFalse((workarea.root_dir / "Example page").exists())
+
+            target = workarea.install_page(staging, "Example page")
+
+            self.assertEqual(target, workarea.root_dir / "Example page")
+            self.assertEqual((target / "_attachments" / "report.xlsx").read_bytes(), b"XLSX")
+
+    def test_rejects_collisions_and_staging_failure_without_target_mutation(self) -> None:
+        with temporary_workarea() as workarea:
+            target = workarea.root_dir / "Example page"
+            target.mkdir()
+            (target / "page.md").write_text("previous\n", encoding="utf-8")
+            before = (target / "page.md").read_text(encoding="utf-8")
+            staging = workarea.stage_page("Example page", "replacement\n", {})
+
+            with self.assertRaises(Workarea.Error):
+                workarea.install_page(staging, "Example page")
+
+            self.assertEqual((target / "page.md").read_text(encoding="utf-8"), before)
+
+            with self.assertRaises(Workarea.Error):
+                workarea.stage_page("Other page", "content", {"../unsafe": b"x"})
+
+            self.assertFalse((workarea.root_dir / "Other page").exists())
+
+    def test_replaces_a_complete_page_directory(self) -> None:
+        with temporary_workarea() as workarea:
+            target = workarea.root_dir / "Example page"
+            target.mkdir()
+            (target / "page.md").write_text("previous\n", encoding="utf-8")
+            (target / "_attachments").mkdir()
+            staging = workarea.stage_page("Example page", "replacement\n", {"new.txt": b"new"})
+
+            workarea.install_page(staging, "Example page", replace=True)
+
+            self.assertEqual((target / "page.md").read_text(encoding="utf-8"), "replacement\n")
+            self.assertEqual((target / "_attachments" / "new.txt").read_bytes(), b"new")
 
 
 # vim: set ts=4 sw=4 et tw=132:
