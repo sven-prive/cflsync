@@ -1,14 +1,27 @@
 [project]
 name = "cflsync"
 version = "0.1.0"
+description = "Synchronize Confluence Cloud pages with local Markdown page directories"
+readme = "README.md"
 authors = [
     { name = "Sven Rosiers", email = "github-sro@rosiers.info" },
 ]
 license = "MPL-2.0"
+license-files = ["LICENSE.md"]
 requires-python = ">=3.11"
 dependencies = [
     "platformdirs>=4.3.8",
 ]
+
+[project.scripts]
+cflsync = "cflsync.cli:main"
+
+[project.urls]
+Repository = "https://github.com/sven-prive/cflsync"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [

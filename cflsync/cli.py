@@ -345,8 +345,12 @@ class PageCommand:
         return 0
 
 
-def main(argv: Sequence[str]) -> int:
-    parser = ArgumentParser(prog=argv[0])
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run one cflsync command, defaulting to this process's arguments."""
+    if argv is None:
+        argv = sys.argv
+
+    parser = ArgumentParser(prog=Path(argv[0]).name)
     parser.set_defaults(command=lambda args: _print_usage(parser))
     subparsers = parser.add_subparsers(title="commands", metavar="command")
     AuthCommand().configure(subparsers)

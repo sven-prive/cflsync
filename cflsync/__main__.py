@@ -10,6 +10,7 @@ import sys
 
 from .cli import main
 
-raise SystemExit(main(sys.argv))
+# Module execution reports its script path, so name the command explicitly.
+raise SystemExit(main(["cflsync", *sys.argv[1:]]))
 
 # vim: set ts=4 sw=4 et tw=132:

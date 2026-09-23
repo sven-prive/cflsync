@@ -18,7 +18,20 @@ as publishing platform rather than authoring environment.
 
 - Python 3.11 or later.
 - [uv](https://docs.astral.sh/uv/) for Python dependency management.
-- Pandoc for the GFM and Pandoc-AST conversion boundary.
+- Pandoc for markup conversion.
+
+## Installation
+
+Install `cflsync` as a standalone command in its own environment:
+
+```console
+uv tool install git+https://github.com/sven-prive/cflsync
+```
+
+From a local checkout, `uv tool install .` does the same. Either way the
+`cflsync` executable lands on `PATH`; Pandoc is not bundled and must be
+installed separately. Without installing, the same interface is available from
+a checkout as `uv run python -m cflsync`.
 
 ## Commands:
 
