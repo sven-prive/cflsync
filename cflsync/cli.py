@@ -18,6 +18,7 @@ from .api import APIClient
 from .config import Config, Profile
 from .convert import ADFToMarkdownConverter, PandocRunner
 from .errors import SyncError
+from .sync import PageInspector
 from .workarea import AttachmentMetadata, MediaResolver, PageMetadata, PageRef, PageState, Workarea
 
 
@@ -124,6 +125,7 @@ class PagePullCommand:
         return 0
 
     def _pull(self, workarea, page, pandoc, force=False):
+        inspector = PageInspector(pandoc)
         attachments = page.attachments()
         MediaResolver((attachment.filename, attachment.id) for attachment in attachments)
         # ADF media nodes reference attachments by file ID, not by attachment ID.
@@ -138,12 +140,14 @@ class PagePullCommand:
             if force and not source.exists():
                 source = None
 
-            if not force and self._local_changed(source, previous, pandoc):
-                raise SyncError(f"page '{page.id}' has local changes; pull conflicts")
+            if not force:
+                changes = inspector.inspect(source, previous, page, attachments)
+                if changes.locally:
+                    raise SyncError(f"page '{page.id}' has local changes; pull conflicts")
 
-            if not force and not self._remote_changed(page, attachments, previous):
-                print(f"Page '{page.id}' is already in sync; nothing pulled. Use --force to regenerate local content.")
-                return
+                if not changes.remotely:
+                    print(f"Page '{page.id}' is already in sync; nothing pulled. Use --force to regenerate local content.")
+                    return
 
         directory_name = workarea.page_directory_name(page.title)
         # Cached ownership also matters when a page directory is missing.
@@ -173,7 +177,7 @@ class PagePullCommand:
             metadata[attachment.filename] = AttachmentMetadata(attachment.id, attachment.version, hashlib.sha256(body).hexdigest())
 
         state = PageState(
-            PageMetadata(page.id, page.title, directory_name, page.version, self._page_hash(markdown, pandoc)), metadata)
+            PageMetadata(page.id, page.title, directory_name, page.version, inspector.content_hash(markdown)), metadata)
         managed = ()
         if previous is not None:
             managed = previous.attachments
@@ -185,34 +189,6 @@ class PagePullCommand:
         finally:
             if staging.exists():
                 shutil.rmtree(staging)
-
-    def _page_hash(self, markdown, pandoc):
-        document = pandoc.gfm_to_pandoc(markdown)
-        canonical = pandoc.pandoc_to_gfm(document)
-
-        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-    def _local_changed(self, directory, state, pandoc):
-        markdown = (directory / "page.md").read_text(encoding="utf-8")
-        if self._page_hash(markdown, pandoc) != state.page.content_hash:
-            return True
-
-        MediaResolver((name, attachment.id) for name, attachment in state.attachments.items())
-        for name, attachment in state.attachments.items():
-            path = directory / "_attachments" / name
-            if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != attachment.content_hash:
-                return True
-
-        return False
-
-    def _remote_changed(self, page, attachments, state):
-        if page.version != state.page.version or page.title != state.page.title:
-            return True
-
-        remote = {attachment.filename: (attachment.id, attachment.version) for attachment in attachments}
-        cached = {name: (attachment.id, attachment.version) for name, attachment in state.attachments.items()}
-
-        return remote != cached
 
 
 class PagePushCommand:

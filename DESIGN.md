@@ -46,7 +46,10 @@ cache, remote-page, or workspace state.
 
 On pull, the ADF body becomes canonical GFM for `page.md`. On push, `page.md`
 becomes ADF for the versioned API update. The synchronization coordinator owns
-cache state, staging, attachment resolution, and concurrent-edit handling.
+cache state, staging, attachment resolution, and concurrent-edit handling. Its
+change inspection is a separate concern: `PageInspector` compares local files,
+cached state, and remote metadata, and reports a `PageChanges` result that pull,
+status, and push interpret through the decision tables in `SPEC.md`.
 
 `PandocRunner` invokes a pinned compatible Pandoc binary through argument
 lists rather than a shell and verifies the expected Pandoc JSON API version.
