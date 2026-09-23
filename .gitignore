@@ -29,3 +29,19 @@ htmlcov/
 .env
 .env.*
 !.env.example
+
+# Coding agent workspaces and local settings
+# Coding agent config = personal! Common agent instructions belong
+# in AGENTS.md
+.agents/
+.aider*
+.claude/
+.cline/
+.codex/
+.continue/
+.cursor/
+.gemini/
+.opencode/
+.pi/
+.roo/
+.windsurf/
