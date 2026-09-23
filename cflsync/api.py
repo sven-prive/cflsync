@@ -130,11 +130,15 @@ class RemoteAttachment:
         return cls(client, id, filename, version, media_type, download_path, page_id)
 
     def download(self) -> bytes:
-        """Download this attachment's bytes through its server-provided link."""
+        """Download this attachment's bytes through its server-provided link.
+
+        The link is relative to the site context path, unlike the pagination
+        links, which already include it.
+        """
         if self.download_path is None:
             raise APIError(f"attachment '{self.id}' has no download link")
 
-        transport = self._client._transport.clone("")
+        transport = self._client._transport.clone("/wiki")
         response = self._client._api_response(transport.make_request("GET", self.download_path))
         return response.body
 

@@ -25,7 +25,7 @@ def page_fixture(page_id: str = "123456", title: str = "Example page") -> dict[s
 
 def attachment_fixture() -> dict[str, object]:
     return {
-        "id": "567890",
+        "id": "att567890",
         "title": "diagram.png",
         "mediaType": "image/png",
         "version": {
@@ -51,7 +51,7 @@ class TestRemoteModels(unittest.TestCase):
         client = APIClient("example.atlassian.net", "user", "token", transport=MockTransport())
         attachment = RemoteAttachment.from_json(client, attachment_fixture())
 
-        self.assertEqual(attachment.id, "567890")
+        self.assertEqual(attachment.id, "att567890")
         self.assertEqual(attachment.filename, "diagram.png")
         self.assertEqual(attachment.version, 3)
         self.assertEqual(attachment.media_type, "image/png")
@@ -135,7 +135,7 @@ class TestAPIClientAttachmentOperations(unittest.TestCase):
         page = RemotePage.from_json(client, page_fixture())
         attachments = page.attachments()
 
-        self.assertEqual([item.id for item in attachments], ["567890"])
+        self.assertEqual([item.id for item in attachments], ["att567890"])
         self.assertEqual(transport.requests[0].path, "/pages/123456/attachments")
 
     def test_downloads_an_attachment_through_its_server_provided_link(self) -> None:
@@ -144,7 +144,7 @@ class TestAPIClientAttachmentOperations(unittest.TestCase):
         attachment = RemoteAttachment.from_json(client, attachment_fixture(), "123456")
 
         self.assertEqual(attachment.download(), b"PNG")
-        self.assertEqual(transport.clone_prefixes, [""])
+        self.assertEqual(transport.clone_prefixes, ["/wiki"])
         self.assertEqual(transport.requests[0].path, attachment.download_path)
 
     def test_creates_an_attachment_with_a_multipart_request(self) -> None:
@@ -155,7 +155,7 @@ class TestAPIClientAttachmentOperations(unittest.TestCase):
 
         created = page.create_attachment("diagram.png", b"PNG")
 
-        self.assertEqual(created.id, "567890")
+        self.assertEqual(created.id, "att567890")
         self.assertEqual(transport.clone_prefixes, ["/wiki/rest/api"])
         request = transport.requests[0]
         self.assertEqual(request.method, "PUT")
@@ -176,9 +176,9 @@ class TestAPIClientAttachmentOperations(unittest.TestCase):
         self.assertEqual(updated.version, 3)
         self.assertEqual(transport.clone_prefixes, ["/wiki/rest/api"])
         self.assertEqual(transport.requests[0].method, "POST")
-        self.assertEqual(transport.requests[0].path, "/content/123456/child/attachment/567890/data")
+        self.assertEqual(transport.requests[0].path, "/content/123456/child/attachment/att567890/data")
         self.assertEqual(transport.requests[1].method, "DELETE")
-        self.assertEqual(transport.requests[1].path, "/attachments/567890")
+        self.assertEqual(transport.requests[1].path, "/attachments/att567890")
 
 
 # vim: set ts=4 sw=4 et tw=132:

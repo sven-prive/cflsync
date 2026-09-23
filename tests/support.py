@@ -31,7 +31,7 @@ def example_page_state(page_id: str = "123456", title: str = "Example page", dir
         page=PageMetadata(
             id=page_id, title=title, directory=directory, version=17, content_hash=hashlib.sha256(b"page").hexdigest()),
         attachments={
-            "diagram.png": AttachmentMetadata(id="987654", version=3, content_hash=hashlib.sha256(b"attachment").hexdigest())})
+            "diagram.png": AttachmentMetadata(id="att987654", version=3, content_hash=hashlib.sha256(b"attachment").hexdigest())})
 
 
 @dataclass(frozen=True)

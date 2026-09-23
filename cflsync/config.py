@@ -61,7 +61,7 @@ class Config:
     def profiles(self):
         raise AttributeError("can't delete read-only property 'profiles'")
 
-    def save(self):
+    def save(self) -> None:
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.path.parent.chmod(0o700)
         with self.path.open("w", encoding="utf-8") as config_file:

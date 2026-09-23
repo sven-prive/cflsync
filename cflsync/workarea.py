@@ -158,8 +158,8 @@ class AttachmentMetadata:
     """The last synchronized state of one managed attachment."""
 
     def __init__(self, id: str, version: int, content_hash: str) -> None:
-        if not id or not id.isdigit():
-            raise StateError("attachment.id must be a numeric identifier")
+        if not id or re.search(r"[\s/\\\x00]", id):
+            raise StateError("attachment.id must be a non-empty opaque identifier")
         if version < 1:
             raise StateError("attachment.version must be a positive integer")
         if re.fullmatch(r"[0-9a-f]{64}", content_hash) is None:

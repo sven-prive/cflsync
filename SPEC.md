@@ -108,7 +108,7 @@ title-based collisions. Format 1 is:
   },
   "attachments": {
     "diagram.png": {
-      "id": "987654",
+      "id": "att987654",
       "version": 3,
       "content_hash": "..."
     }

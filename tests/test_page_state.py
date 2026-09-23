@@ -15,12 +15,20 @@ class TestPageStateSerialization(unittest.TestCase):
         with self.assertRaises(StateError):
             PageMetadata(id="123456", title="Example page", directory="Example page", version=17, content_hash="not-a-hash")
 
+    def test_attachment_metadata_accepts_an_opaque_remote_id(self) -> None:
+        attachment_hash = hashlib.sha256(b"attachment").hexdigest()
+        attachment = AttachmentMetadata(id="att1843529704", version=1, content_hash=attachment_hash)
+
+        self.assertEqual(attachment.id, "att1843529704")
+        with self.assertRaises(StateError):
+            AttachmentMetadata(id="att 1843529704", version=1, content_hash=attachment_hash)
+
     def test_serializes_the_format_1_state_shape(self) -> None:
         page_hash = hashlib.sha256(b"page").hexdigest()
         attachment_hash = hashlib.sha256(b"attachment").hexdigest()
         state = PageState(
             page=PageMetadata(id="123456", title="Example page", directory="Example page", version=17, content_hash=page_hash),
-            attachments={"diagram.png": AttachmentMetadata(id="987654", version=3, content_hash=attachment_hash)})
+            attachments={"diagram.png": AttachmentMetadata(id="att987654", version=3, content_hash=attachment_hash)})
 
         self.assertEqual(
             state.to_json(), {
@@ -33,7 +41,7 @@ class TestPageStateSerialization(unittest.TestCase):
                     "content_hash": page_hash},
                 "attachments": {
                     "diagram.png": {
-                        "id": "987654",
+                        "id": "att987654",
                         "version": 3,
                         "content_hash": attachment_hash}}})
 
