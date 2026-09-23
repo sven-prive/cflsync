@@ -105,26 +105,18 @@ class TestADFToMarkdownConverter(unittest.TestCase):
                     "extensionKey": "synthetic",
                     "metadata": {
                         "value": 42}}}, {
-                            "type":
-                            "table",
+                            "type": "panel",
                             "attrs": {
-                                "layout": "wide"},
-                            "content": [
-                                {
-                                    "type": "tableRow",
-                                    "content": [{
-                                        "type": "tableCell",
-                                        "attrs": {
-                                            "colspan": 2},
-                                        "content": [paragraph, paragraph]}]}]}, {
-                                            "type": "heading",
-                                            "attrs": {
-                                                "level": "invalid"},
-                                            "content": []}, {
-                                                "type": "orderedList",
-                                                "attrs": {
-                                                    "order": 0},
-                                                "content": []},
+                                "panelType": "info"},
+                            "content": [paragraph]}, {
+                                "type": "heading",
+                                "attrs": {
+                                    "level": "invalid"},
+                                "content": []}, {
+                                    "type": "orderedList",
+                                    "attrs": {
+                                        "order": 0},
+                                    "content": []},
             {
                 "type": "paragraph",
                 "content": [{
@@ -222,6 +214,51 @@ class TestADFToMarkdownConverter(unittest.TestCase):
                                                                         "t": "CodeBlock",
                                                                         "c": [["", ["python"], []], "print(1)"]}, {
                                                                             "t": "HorizontalRule"}, ], })
+
+    def test_maps_a_table_to_a_pandoc_table(self) -> None:
+        pandoc = RecordingPandoc()
+        paragraph = {"type": "paragraph", "content": [{"type": "text", "text": "Cell"}]}
+        table = {
+            "type":
+            "table",
+            "attrs": {
+                "layout": "wide",
+                "width": 760.0},
+            "content": [
+                {
+                    "type": "tableRow",
+                    "content": [{
+                        "type": "tableHeader",
+                        "attrs": {
+                            "colspan": 2,
+                            "rowspan": 1},
+                        "content": [paragraph]}]}, {
+                            "type": "tableRow",
+                            "content":
+                            [{
+                                "type": "tableCell",
+                                "content": [paragraph]}, {
+                                    "type": "tableCell",
+                                    "content": [paragraph]}]}]}
+
+        ADFToMarkdownConverter(pandoc).convert({"type": "doc", "version": 1, "content": [table]})
+
+        block = pandoc.pandoc["blocks"][0]
+        attributes, caption, colspecs, head, bodies, foot = block["c"]
+        self.assertEqual(block["t"], "Table")
+        self.assertEqual([attributes, caption, foot], [["", [], []], [None, []], [["", [], []], []]])
+        self.assertEqual(len(colspecs), 2)
+        self.assertEqual(head[1][0][1][0][2:4], [1, 2])
+        self.assertEqual(bodies[0][1:3], [0, []])
+        self.assertEqual(len(bodies[0][3][0][1]), 2)
+
+    def test_retains_a_structurally_invalid_table(self) -> None:
+        pandoc = RecordingPandoc()
+        table = {"type": "table", "content": [{"type": "tableRow", "content": [{"type": "paragraph", "content": []}]}]}
+
+        ADFToMarkdownConverter(pandoc).convert({"type": "doc", "version": 1, "content": [table]})
+
+        self.assertEqual(pandoc.pandoc["blocks"][0]["c"][0], ["", ["atlas_doc_format"], []])
 
     def test_maps_media_resolved_through_the_attachment_manifest(self) -> None:
         media = MediaResolver([("diagram.png", "file-1"), ("report.pdf", "file-2")])

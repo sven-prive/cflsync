@@ -86,6 +86,9 @@ class ADFToMarkdownConverter:
         if node_type == "rule":
             return self._convert_rule(node)
 
+        if node_type == "table":
+            return self._convert_table(node)
+
         if node_type == "mediaSingle":
             return self._convert_media_single(node)
 
@@ -163,6 +166,75 @@ class ADFToMarkdownConverter:
 
     def _convert_rule(self, node):
         return {"t": "HorizontalRule"}
+
+    def _convert_table(self, node):
+        content = self._convert_block_content(node)
+        if not content:
+            return self._convert_opaque(node)
+
+        rows = []
+        columns = 0
+        for child in content:
+            if not isinstance(child, Mapping) or child.get("type") != "tableRow":
+                return self._convert_opaque(node)
+
+            cells = self._convert_table_cells(child)
+            if cells is None:
+                return self._convert_opaque(node)
+
+            columns = max(columns, self._table_row_columns(child))
+            rows.append([["", [], []], cells])
+
+        head = rows[:1] if self._is_header_row(content[0]) else []
+        colspecs = [[{"t": "AlignDefault"}, {"t": "ColWidthDefault"}] for _ in range(columns)]
+        body = [["", [], []], 0, [], rows[len(head):]]
+
+        return {"t": "Table", "c": [["", [], []], [None, []], colspecs, [["", [], []], head], [body], [["", [], []], []]]}
+
+    def _convert_table_cells(self, row):
+        content = self._convert_block_content(row)
+        if not content:
+            return None
+
+        cells = []
+        for child in content:
+            cell = self._convert_table_cell(child)
+            if cell is None:
+                return None
+
+            cells.append(cell)
+
+        return cells
+
+    def _convert_table_cell(self, node):
+        if not isinstance(node, Mapping) or node.get("type") not in {"tableCell", "tableHeader"}:
+            return None
+
+        attrs = node.get("attrs", {})
+        content = node.get("content", [])
+        if not isinstance(attrs, Mapping) or not isinstance(content, list):
+            return None
+
+        rowspan = attrs.get("rowspan", 1)
+        colspan = attrs.get("colspan", 1)
+        if type(rowspan) is not int or type(colspan) is not int or rowspan < 1 or colspan < 1:
+            return None
+
+        return [["", [], []], {"t": "AlignDefault"}, rowspan, colspan, self._convert_blocks(content)]
+
+    def _table_row_columns(self, row):
+        columns = 0
+        for cell in self._convert_block_content(row):
+            columns += cell.get("attrs", {}).get("colspan", 1)
+
+        return columns
+
+    def _is_header_row(self, row):
+        content = self._convert_block_content(row)
+        if not content:
+            return False
+
+        return all(isinstance(cell, Mapping) and cell.get("type") == "tableHeader" for cell in content)
 
     def _convert_media_single(self, node):
         content = self._convert_block_content(node)
@@ -446,6 +518,12 @@ class MarkdownToADFConverter:
         if node_type == "HorizontalRule":
             return self._convert_rule(pandoc_block)
 
+        if node_type == "Table":
+            return self._convert_table(pandoc_block)
+
+        if node_type == "RawBlock":
+            return self._convert_raw_block(pandoc_block)
+
         raise ConversionError(f"unsupported Pandoc block '{node_type}'")
 
     def _convert_paragraph(self, pandoc_block):
@@ -546,6 +624,98 @@ class MarkdownToADFConverter:
             raise ConversionError("Pandoc horizontal rule has unsupported fields")
 
         return {"type": "rule"}
+
+    def _convert_table(self, pandoc_block):
+        if not self._has_fields(pandoc_block, {"t", "c"}):
+            raise ConversionError("Pandoc table has unsupported fields")
+
+        value = pandoc_block.get("c")
+        if not isinstance(value, list) or len(value) != 6:
+            raise ConversionError("Pandoc table has invalid content")
+
+        attributes, caption, colspecs, head, bodies, foot = value
+        if attributes != ["", [], []]:
+            raise ConversionError("Pandoc table has unsupported attributes")
+
+        if not isinstance(caption, list) or len(caption) != 2 or caption[1] != []:
+            raise ConversionError("Pandoc table captions cannot be represented in ADF")
+
+        if not isinstance(foot, list) or len(foot) != 2 or foot[1] != []:
+            raise ConversionError("Pandoc table footers cannot be represented in ADF")
+
+        rows = self._convert_table_head(head) + self._convert_table_bodies(bodies)
+        if not rows:
+            raise ConversionError("Pandoc table has no rows")
+
+        return {"type": "table", "content": rows}
+
+    def _convert_table_head(self, head):
+        if not isinstance(head, list) or len(head) != 2 or not isinstance(head[1], list):
+            raise ConversionError("Pandoc table head has invalid content")
+
+        return [self._convert_table_row(row, "tableHeader") for row in head[1]]
+
+    def _convert_table_bodies(self, bodies):
+        if not isinstance(bodies, list):
+            raise ConversionError("Pandoc table bodies must be a list")
+
+        rows = []
+        for body in bodies:
+            if not isinstance(body, list) or len(body) != 4:
+                raise ConversionError("Pandoc table body has invalid content")
+
+            attributes, head_columns, head_rows, body_rows = body
+            if head_columns != 0 or head_rows != []:
+                raise ConversionError("Pandoc table row headers cannot be represented in ADF")
+
+            if not isinstance(body_rows, list):
+                raise ConversionError("Pandoc table body rows must be a list")
+
+            for row in body_rows:
+                rows.append(self._convert_table_row(row, "tableCell"))
+
+        return rows
+
+    def _convert_table_row(self, row, cell_type):
+        if not isinstance(row, list) or len(row) != 2 or not isinstance(row[1], list):
+            raise ConversionError("Pandoc table row has invalid content")
+
+        return {"type": "tableRow", "content": [self._convert_table_cell(cell, cell_type) for cell in row[1]]}
+
+    def _convert_table_cell(self, cell, cell_type):
+        if not isinstance(cell, list) or len(cell) != 5:
+            raise ConversionError("Pandoc table cell has invalid content")
+
+        attributes, alignment, rowspan, colspan, blocks = cell
+        if attributes != ["", [], []] or not isinstance(blocks, list):
+            raise ConversionError("Pandoc table cell has unsupported attributes")
+
+        if type(rowspan) is not int or type(colspan) is not int or rowspan < 1 or colspan < 1:
+            raise ConversionError("Pandoc table cell has invalid spans")
+
+        content = self._convert_blocks(blocks)
+        if not content:
+            content = [{"type": "paragraph"}]
+
+        return {"type": cell_type, "attrs": {"colspan": colspan, "rowspan": rowspan}, "content": content}
+
+    def _convert_raw_block(self, pandoc_block):
+        """Recover an HTML table, which is how GFM represents a table Pandoc cannot pipe."""
+        if not self._has_fields(pandoc_block, {"t", "c"}):
+            raise ConversionError("Pandoc raw block has unsupported fields")
+
+        value = pandoc_block.get("c")
+        if not isinstance(value, list) or len(value) != 2 or value[0] != "html" or not isinstance(value[1], str):
+            raise ConversionError("raw content other than an HTML table cannot be represented in ADF")
+
+        if not value[1].lstrip().startswith("<table"):
+            raise ConversionError("raw content other than an HTML table cannot be represented in ADF")
+
+        blocks = self._pandoc_runner.html_to_pandoc(value[1]).get("blocks")
+        if not isinstance(blocks, list) or len(blocks) != 1 or not isinstance(blocks[0], Mapping):
+            raise ConversionError("raw HTML must contain exactly one table")
+
+        return self._convert_table(blocks[0])
 
     def _convert_media_block(self, pandoc_block):
         value = pandoc_block.get("c")
@@ -816,6 +986,10 @@ class PandocRunner:
     def gfm_to_pandoc(self, gfm: str) -> dict[str, object]:
         """Parse GFM to a validated Pandoc native JSON document."""
         return self._pandoc(self._run(["--from=gfm", "--to=json"], gfm))
+
+    def html_to_pandoc(self, html: str) -> dict[str, object]:
+        """Parse an HTML fragment to a validated Pandoc native JSON document."""
+        return self._pandoc(self._run(["--from=html", "--to=json"], html))
 
     def pandoc_to_gfm(self, pandoc: Mapping[str, object]) -> str:
         """Render a validated Pandoc native JSON document to canonical GFM."""

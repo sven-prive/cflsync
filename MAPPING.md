@@ -96,11 +96,24 @@ supported marks.
 
 ## Tables and media
 
-Tables currently remain opaque. A future native table mapping must inspect
-structure: simple single-paragraph cells can map to GFM, while multi-paragraph
-cells, spans, and nested blocks require retention of the whole table. Decorative
-attributes alone should not prevent conversion. The reverse mapping will emit
-`table`, `tableRow`, and `tableHeader` or `tableCell` nodes for the supported subset.
+`table`, `tableRow`, `tableHeader`, and `tableCell` map to a Pandoc `Table`.
+Pandoc then picks the GFM representation: a pipe table when every cell holds a
+single paragraph and all spans are 1, and an HTML `<table>` otherwise. The
+reverse direction reads a pipe table directly; an HTML table arrives as a raw
+block and is parsed back into a Pandoc `Table` by a second Pandoc invocation,
+after which both representations share one mapping. Only raw blocks that are
+HTML tables are accepted; other raw content has no ADF equivalent.
+
+Cell content uses the ordinary block mapping, so opaque markers inside a cell
+are retained like anywhere else. An ADF table converts unless its structure is
+invalid; a leading row of `tableHeader` cells becomes the table head, and a
+table without one is written with an empty header row, which becomes a real
+empty header row when pushed back.
+
+These table features do not survive conversion: header cells outside the first
+row, hard breaks inside a cell, table `layout`, `width`, and `localId`, cell
+`colwidth` and `background`, `isNumberColumnEnabled`, and column alignment,
+which has no ADF counterpart in either direction.
 
 `mediaSingle` and `mediaGroup` map to a Pandoc paragraph of `Image` or `Link`
 inlines when the page attachment manifest resolves the ADF media identifier to

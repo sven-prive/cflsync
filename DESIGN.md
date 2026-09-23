@@ -60,10 +60,11 @@ the fields needed by their mapping; unrelated metadata, extra attributes, and
 unsupported formatting marks are ignored. Required values and content shapes
 are still checked at the ADF input boundary.
 
-Unsupported structures, including macros and complex tables, are retained as
-`atlas_doc_format` fenced blocks containing complete original ADF-node JSON.
-Node handlers inspect attributes that affect structural representability,
-such as table spans, rather than rejecting every unfamiliar attribute. For
+Unsupported structures, such as macros, are retained as `atlas_doc_format`
+fenced blocks containing complete original ADF-node JSON. Tables convert
+instead: Pandoc writes a pipe table where GFM allows one and an HTML table
+otherwise, keeping spans and multi-block cells at the cost of one extra Pandoc
+invocation when reading such a table back. For
 unsupported inline nodes, the smallest enclosing ADF block is retained so the
 fence remains valid GFM. Retained JSON is not normalized or stripped of metadata.
 Malformed or contextually invalid retained JSON stops reverse conversion.

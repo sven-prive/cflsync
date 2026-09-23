@@ -30,6 +30,10 @@ class PandocBridge:
         return self.pandoc
 
 
+def _cell(cell_type, blocks, colspan=1, rowspan=1):
+    return {"type": cell_type, "attrs": {"colspan": colspan, "rowspan": rowspan}, "content": blocks}
+
+
 def pandoc_document(blocks):
     return {"pandoc-api-version": list(PandocRunner.API_VERSION), "meta": {}, "blocks": blocks}
 
@@ -275,6 +279,45 @@ class TestMarkdownToADFConverter(unittest.TestCase):
         document = MarkdownToADFConverter(pandoc).convert(markdown)
 
         self.assertEqual(document, source)
+
+    def test_round_trips_tables_through_pipe_and_html_representations(self) -> None:
+        pandoc = PandocRunner()
+        forward = ADFToMarkdownConverter(pandoc)
+        reverse = MarkdownToADFConverter(pandoc)
+        paragraph = {"type": "paragraph", "content": [{"type": "text", "text": "Cell"}]}
+        simple = {
+            "type":
+            "table",
+            "content": [
+                {
+                    "type": "tableRow",
+                    "content": [_cell("tableHeader", [paragraph])]}, {
+                        "type": "tableRow",
+                        "content": [_cell("tableCell", [paragraph])]}]}
+        complex_table = {
+            "type":
+            "table",
+            "content": [
+                {
+                    "type": "tableRow",
+                    "content": [_cell("tableHeader", [paragraph], colspan=2)]}, {
+                        "type": "tableRow",
+                        "content": [_cell("tableCell", [paragraph, paragraph]),
+                                    _cell("tableCell", [paragraph])]}]}
+
+        for name, table in (("pipe", simple), ("html", complex_table)):
+            with self.subTest(representation=name):
+                source = {"type": "doc", "version": 1, "content": [table]}
+                markdown = forward.convert(source)
+
+                self.assertEqual(markdown.lstrip().startswith("<table"), name == "html")
+                self.assertEqual(reverse.convert(markdown), source)
+
+    def test_rejects_raw_html_that_is_not_a_table(self) -> None:
+        pandoc = RecordingPandoc(pandoc_document([{"t": "RawBlock", "c": ["html", "<div>text</div>"]}]))
+
+        with self.assertRaisesRegex(ConversionError, "HTML table"):
+            MarkdownToADFConverter(pandoc).convert("source")
 
     def test_round_trips_media_through_the_attachment_manifest(self) -> None:
         media = MediaResolver([("diagram.png", "file-1"), ("report.pdf", "file-2")])
