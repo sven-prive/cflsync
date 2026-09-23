@@ -108,7 +108,7 @@ class TestADFToMarkdownConverter(unittest.TestCase):
                         "value": 42}}}, {
                             "type": "panel",
                             "attrs": {
-                                "panelType": "info"},
+                                "panelType": "invalid"},
                             "content": [paragraph]}, {
                                 "type": "heading",
                                 "attrs": {
@@ -300,6 +300,57 @@ class TestADFToMarkdownConverter(unittest.TestCase):
                                 "t": "Space"}, {
                                     "t": "Str",
                                     "c": "Done"}]}]]})
+
+    def test_maps_panel_types_to_pandoc_alerts(self) -> None:
+        alerts = {
+            "info": "note",
+            "note": "note",
+            "tip": "tip",
+            "warning": "warning",
+            "error": "caution",
+            "success": "tip",
+            "custom": "note"}
+        paragraph = {"type": "paragraph", "content": [{"type": "text", "text": "Content"}]}
+
+        for panel_type, alert in alerts.items():
+            with self.subTest(panel_type=panel_type):
+                pandoc = RecordingPandoc()
+                panel = {
+                    "type": "panel",
+                    "attrs": {
+                        "panelType": panel_type,
+                        "panelColor": "#123456",
+                        "panelIcon": "ignored"},
+                    "content": [paragraph]}
+
+                ADFToMarkdownConverter(pandoc).convert({"type": "doc", "version": 1, "content": [panel]})
+
+                attributes, blocks = pandoc.pandoc["blocks"][0]["c"]
+                self.assertEqual(attributes, ["", [alert], []])
+                self.assertEqual(
+                    blocks[0], {
+                        "t": "Div",
+                        "c": [["", ["title"], []], [{
+                            "t": "Para",
+                            "c": [{
+                                "t": "Str",
+                                "c": alert.title()}]}]]})
+                self.assertEqual(blocks[1], {"t": "Para", "c": [{"t": "Str", "c": "Content"}]})
+
+    def test_writes_a_panel_as_a_gfm_alert(self) -> None:
+        panel = {
+            "type": "panel",
+            "attrs": {
+                "panelType": "warning"},
+            "content": [{
+                "type": "paragraph",
+                "content": [{
+                    "type": "text",
+                    "text": "Content"}]}]}
+
+        markdown = ADFToMarkdownConverter(PandocRunner()).convert({"type": "doc", "version": 1, "content": [panel]})
+
+        self.assertEqual(markdown, "> [!WARNING]\n> Content\n")
 
     def test_writes_a_nested_task_list_as_gfm_checkboxes(self) -> None:
         document = {

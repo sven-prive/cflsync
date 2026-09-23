@@ -223,6 +223,72 @@ class TestMarkdownToADFConverter(unittest.TestCase):
                                                     "type": "text",
                                                     "text": "Child"}]}]}]}]})
 
+    def test_maps_gfm_alerts_to_canonical_panels(self) -> None:
+        markdown = """\
+> [!NOTE]
+> Note content.
+
+> [!TIP]
+> Tip content.
+
+> [!IMPORTANT]
+> Important content.
+
+> [!WARNING]
+> Warning content.
+
+> [!CAUTION]
+> Caution content.
+"""
+
+        document = MarkdownToADFConverter(PandocRunner()).convert(markdown)
+
+        self.assertEqual(
+            document["content"], [
+                {
+                    "type": "panel",
+                    "attrs": {
+                        "panelType": "note"},
+                    "content": [{
+                        "type": "paragraph",
+                        "content": [{
+                            "type": "text",
+                            "text": "Note content."}]}]}, {
+                                "type": "panel",
+                                "attrs": {
+                                    "panelType": "tip"},
+                                "content": [{
+                                    "type": "paragraph",
+                                    "content": [{
+                                        "type": "text",
+                                        "text": "Tip content."}]}]},
+                {
+                    "type": "panel",
+                    "attrs": {
+                        "panelType": "info"},
+                    "content": [{
+                        "type": "paragraph",
+                        "content": [{
+                            "type": "text",
+                            "text": "Important content."}]}]}, {
+                                "type": "panel",
+                                "attrs": {
+                                    "panelType": "warning"},
+                                "content": [{
+                                    "type": "paragraph",
+                                    "content": [{
+                                        "type": "text",
+                                        "text": "Warning content."}]}]}, {
+                                            "type": "panel",
+                                            "attrs": {
+                                                "panelType": "error"},
+                                            "content": [
+                                                {
+                                                    "type": "paragraph",
+                                                    "content": [{
+                                                        "type": "text",
+                                                        "text": "Caution content."}]}]}, ])
+
     def test_decodes_an_opaque_marker(self) -> None:
         node = {
             "type": "panel",

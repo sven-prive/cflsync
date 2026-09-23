@@ -17,6 +17,15 @@ from .errors import SyncError
 PANDOC_API_VERSION = (1, 23, 1, 2)
 IMAGE_SUFFIXES = (".apng", ".avif", ".bmp", ".gif", ".jpeg", ".jpg", ".png", ".svg", ".tif", ".tiff", ".webp")
 STATUS_COLORS = {"neutral": "gray", "purple": "purple", "blue": "blue", "red": "red", "yellow": "yellow", "green": "green"}
+PANEL_ALERTS = {
+    "info": "note",
+    "note": "note",
+    "tip": "tip",
+    "warning": "warning",
+    "error": "caution",
+    "success": "tip",
+    "custom": "note"}
+ALERT_PANELS = {"note": "note", "tip": "tip", "important": "info", "warning": "warning", "caution": "error"}
 
 
 def _local_date(timestamp):
@@ -87,6 +96,9 @@ class ADFToMarkdownConverter:
         if node_type == "blockquote":
             return self._convert_blockquote(node)
 
+        if node_type == "panel":
+            return self._convert_panel(node)
+
         if node_type == "bulletList":
             return self._convert_bullet_list(node)
 
@@ -138,6 +150,21 @@ class ADFToMarkdownConverter:
             return self._convert_opaque(node)
 
         return {"t": "BlockQuote", "c": self._convert_blocks(content)}
+
+    def _convert_panel(self, node):
+        attrs = node.get("attrs")
+        content = self._convert_block_content(node)
+        if not isinstance(attrs, Mapping) or content is None:
+            return self._convert_opaque(node)
+
+        alert = PANEL_ALERTS.get(attrs.get("panelType"))
+        if alert is None:
+            return self._convert_opaque(node)
+
+        blocks = self._convert_blocks(content)
+        title = {"t": "Div", "c": [["", ["title"], []], [{"t": "Para", "c": [{"t": "Str", "c": alert.title()}]}]]}
+
+        return {"t": "Div", "c": [["", [alert], []], [title, *blocks]]}
 
     def _convert_bullet_list(self, node):
         items = self._convert_list_items(node)
@@ -730,6 +757,9 @@ class MarkdownToADFConverter:
         if node_type == "BlockQuote":
             return self._convert_blockquote(pandoc_block)
 
+        if node_type == "Div":
+            return self._convert_div(pandoc_block)
+
         if node_type == "BulletList":
             return self._convert_bullet_list(pandoc_block)
 
@@ -799,6 +829,67 @@ class MarkdownToADFConverter:
             raise ConversionError("Pandoc block quote content must be a list")
 
         return {"type": "blockquote", "content": self._convert_blocks(blocks)}
+
+    def _convert_div(self, pandoc_block):
+        panel = self._convert_panel(pandoc_block)
+        if panel is None:
+            raise ConversionError("unsupported Pandoc div")
+
+        return panel
+
+    def _convert_panel(self, pandoc_block):
+        if not self._has_fields(pandoc_block, {"t", "c"}):
+            return None
+
+        value = pandoc_block.get("c")
+        if not isinstance(value, list) or len(value) != 2:
+            return None
+
+        attributes, blocks = value
+        alert = self._panel_alert(attributes)
+        if alert is None or not isinstance(blocks, list) or len(blocks) < 2:
+            return None
+
+        if not self._is_panel_title(blocks[0], alert):
+            return None
+
+        return {"type": "panel", "attrs": {"panelType": ALERT_PANELS[alert]}, "content": self._convert_blocks(blocks[1:])}
+
+    def _panel_alert(self, attributes):
+        if not isinstance(attributes, list) or len(attributes) != 3:
+            return None
+
+        identifier, classes, key_values = attributes
+        if identifier != "" or not isinstance(classes, list) or len(classes) != 1 or key_values != []:
+            return None
+
+        alert = classes[0]
+        if alert not in ALERT_PANELS:
+            return None
+
+        return alert
+
+    def _is_panel_title(self, pandoc_block, alert):
+        if not isinstance(pandoc_block, Mapping) or not self._has_fields(pandoc_block, {"t", "c"}):
+            return False
+
+        if pandoc_block.get("t") != "Div":
+            return False
+
+        value = pandoc_block.get("c")
+        if not isinstance(value, list) or len(value) != 2:
+            return False
+
+        attributes, blocks = value
+        if attributes != ["", ["title"], []] or not isinstance(blocks, list) or len(blocks) != 1:
+            return False
+
+        title = blocks[0]
+        if not isinstance(title, Mapping) or title.get("t") != "Para" or not self._has_fields(title, {"t", "c"}):
+            return False
+
+        inlines = title.get("c")
+        return isinstance(inlines, list) and self._plain_text(inlines) == alert.title()
 
     def _convert_bullet_list(self, pandoc_block):
         if not self._has_fields(pandoc_block, {"t", "c"}):

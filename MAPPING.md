@@ -60,6 +60,7 @@ heading that no longer matches, because push does not rename pages.
 | `paragraph` | `Para` | `paragraph` |
 | `heading` with `attrs.level` 1–6 | `Header max(2, level)` | `heading` with `attrs.level` |
 | `blockquote` | `BlockQuote` | `blockquote` |
+| `panel` | GFM alert `Div` | canonical `panel` |
 | `bulletList` and `listItem` | `BulletList` | `bulletList` and `listItem` |
 | `orderedList` and `listItem` | `OrderedList` | `orderedList` and `listItem` |
 | `taskList` and `taskItem` | `BulletList` beginning each item with `☐` or `☒` | `taskList` and `taskItem` |
@@ -77,6 +78,22 @@ fallback; malformed document structure may instead raise a conversion error.
 
 Blockquotes map to Markdown `>` blocks and back to ADF `blockquote` nodes,
 with their contained blocks and inline formatting converted recursively.
+
+Panels map to GFM alerts and back to canonical panel types:
+
+| ADF `panelType` | GFM alert | Reverse `panelType` |
+| --- | --- | --- |
+| `info` | `NOTE` | `note` |
+| `note` | `NOTE` | `note` |
+| `tip` | `TIP` | `tip` |
+| `warning` | `WARNING` | `warning` |
+| `error` | `CAUTION` | `error` |
+| `success` | `TIP` | `tip` |
+| `custom` | `NOTE` | `note` |
+
+The mapping discards `panelColor`, panel icon attributes, and `localId`.
+Only the Pandoc alert `Div` shape emitted by GFM alert syntax is recognized as
+a panel on reverse conversion; ordinary blockquotes remain blockquotes.
 
 Task lists map directly to GFM task lists: `TODO` becomes `- [ ]` and `DONE`
 becomes `- [x]`. Pandoc represents these markers as leading `☐` and `☒` inline
@@ -213,7 +230,7 @@ retains the nearest valid ancestor rather than changing the document shape.
 ### Initially opaque ADF features
 
 - `inlineCard`, custom emoji, and unsupported media.
-- `panel`, `expand`, `nestedExpand`, decision lists, layouts, and
+- `expand`, `nestedExpand`, decision lists, layouts, and
   `extensionFrame`.
 - `extension`, `bodiedExtension`, `multiBodiedExtension`, sync blocks, and
   third-party Confluence macro nodes.
