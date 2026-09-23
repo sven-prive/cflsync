@@ -9,7 +9,9 @@ import json
 from collections.abc import Mapping
 
 from .errors import SyncError
-from .transport import Transport, TransportResponse, UrllibTransport
+from .transport import Transport, TransportError, TransportResponse, UrllibTransport
+
+RETRIABLE_READ_STATUSES = {429, 502, 503, 504}
 
 
 class APIError(SyncError):
@@ -21,14 +23,21 @@ class APIError(SyncError):
 
     @classmethod
     def from_response(cls, response: "APIResponse") -> "APIError":
-        message = f"Confluence API request failed with HTTP {response.status}"
+        messages = {
+            401: "Confluence authentication failed; check the configured credentials",
+            403: "Confluence access was denied; check page permissions",
+            404: "Confluence resource was not found",
+            409: "Confluence rejected the update because the remote resource changed",
+            412: "Confluence rejected the update because the remote resource changed",
+            429: "Confluence rate limited the request; retry later"}
+        message = messages.get(response.status, f"Confluence API request failed with HTTP {response.status}")
         try:
             value = json.loads(response.body)
         except (json.JSONDecodeError, UnicodeDecodeError):
             pass
         else:
             if isinstance(value, Mapping) and isinstance(value.get("message"), str):
-                message = value["message"]
+                message = f"{message}: {value['message']}"
 
         return cls(message, response.status)
 
@@ -148,7 +157,7 @@ class RemoteAttachment:
             raise APIError(f"attachment '{self.id}' has no download link")
 
         transport = self._client._transport.clone("/wiki")
-        response = self._client._api_response(transport.make_request("GET", self.download_path))
+        response = self._client._request(transport, "GET", self.download_path)
         return response.body
 
     def update(self, body: bytes) -> "RemoteAttachment":
@@ -174,8 +183,13 @@ class APIClient:
             username: str,
             password: str,
             base_path: str = "/wiki/api/v2",
-            transport: Transport | None = None) -> None:
+            transport: Transport | None = None,
+            read_attempts: int = 2) -> None:
+        if type(read_attempts) is not int or read_attempts < 1:
+            raise ValueError("read_attempts must be a positive integer")
+
         self._transport = transport or UrllibTransport(host, username, password, base_path)
+        self._read_attempts = read_attempts
 
     def make_request(
             self,
@@ -185,7 +199,30 @@ class APIClient:
             headers: Mapping[str, str] | None = None,
             body: bytes | None = None) -> APIResponse:
         """Send one request through the configured transport context."""
-        return self._api_response(self._transport.make_request(method, path, parameters, headers, body))
+        return self._request(self._transport, method, path, parameters, headers, body)
+
+    def _request(self, transport, method, path="", parameters=None, headers=None, body=None):
+        attempts = self._read_attempts if method in {"GET", "HEAD"} else 1
+        for attempt in range(attempts):
+            try:
+                response = transport.make_request(method, path, parameters, headers, body)
+            except TransportError:
+                if attempt + 1 == attempts:
+                    raise
+
+                continue
+
+            api_response = APIResponse.from_transport(response)
+            if 200 <= api_response.status < 300:
+                return api_response
+
+            error = APIError.from_response(api_response)
+            if method in {"GET", "HEAD"} and api_response.status in RETRIABLE_READ_STATUSES and attempt + 1 < attempts:
+                continue
+
+            raise error
+
+        raise AssertionError("request retry loop ended unexpectedly")
 
     def make_json_request(
             self,
@@ -226,7 +263,7 @@ class APIClient:
                 return results
 
             next_path_transport = self._transport.clone("")
-            response = self._api_response(next_path_transport.make_request("GET", next_path, headers=headers))
+            response = self._request(next_path_transport, "GET", next_path, headers=headers)
 
     def get_page(self, page_id: str) -> RemotePage:
         """Return a page with its Atlas Document Format body."""
@@ -264,22 +301,14 @@ class APIClient:
     def _v1_multipart_request(self, method: str, path: str, filename: str, body: bytes) -> APIResponse:
         boundary, multipart_body = _multipart_body(filename, body)
         transport = self._transport.clone("/wiki/rest/api")
-        response = transport.make_request(
+        return self._request(
+            transport,
             method,
             path,
             headers={
                 "Content-Type": f"multipart/form-data; boundary={boundary}",
                 "X-Atlassian-Token": "nocheck"},
             body=multipart_body)
-        return self._api_response(response)
-
-    @staticmethod
-    def _api_response(response: TransportResponse) -> APIResponse:
-        api_response = APIResponse.from_transport(response)
-        if not 200 <= api_response.status < 300:
-            raise APIError.from_response(api_response)
-
-        return api_response
 
     @staticmethod
     def _json_object(response: APIResponse) -> Mapping[str, object]:

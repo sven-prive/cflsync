@@ -70,6 +70,33 @@ Run the complete test suite with:
 uv run python -m unittest discover -s tests -v
 ```
 
+The automated suite uses only local filesystem fixtures and recorded HTTP
+transports. Importing the `tests` package blocks address resolution and socket
+connections, so an accidental live request fails instead of reaching a real
+site.
+
+### Manual acceptance check
+
+Live acceptance against Confluence Cloud is a manual operation and is never
+part of the automated suite. Run it against a disposable page in a scratch
+space, using a workarea outside the repository:
+
+```console
+cflsync auth -p acceptance
+mkdir /tmp/cflsync-acceptance && cd /tmp/cflsync-acceptance
+cflsync init -p acceptance
+cflsync page create PARENT_PAGE_ID "cflsync acceptance"
+cflsync page status "cflsync acceptance"
+$EDITOR "cflsync acceptance/page.md"
+cflsync page push "cflsync acceptance"
+cflsync page pull "cflsync acceptance"
+cflsync page status "cflsync acceptance"
+```
+
+The check passes when the edit appears on the remote page, the final status
+reports both sides unchanged, and the page history contains no version other
+than those the commands above produced. Delete the page afterwards.
+
 ## License
 
 This project is licensed under the [Mozilla Public License 2.0](LICENSE.md).

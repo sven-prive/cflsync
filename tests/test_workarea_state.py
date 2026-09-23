@@ -4,7 +4,10 @@
 """Tests for state-backed workarea operations."""
 
 import os
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from cflsync import PageState, StateError, Workarea
 from tests.support import example_page_state, temporary_workarea
@@ -30,6 +33,27 @@ class TestWorkareaPageStates(unittest.TestCase):
 
             with self.assertRaises(StateError):
                 workarea.page_state_paths()
+
+
+class TestWorkareaInitialization(unittest.TestCase):
+
+    def test_failed_profile_write_leaves_no_partial_workarea(self) -> None:
+        original_open = Path.open
+
+        def fail_profile_open(path, *args, **kwargs):
+            if path.name == "profile":
+                raise OSError("injected profile write failure")
+
+            return original_open(path, *args, **kwargs)
+
+        with TemporaryDirectory(prefix="cflsync-init-") as temporary_dir:
+            root = Path(temporary_dir)
+            with patch.object(Path, "open", fail_profile_open):
+                with self.assertRaisesRegex(Workarea.Error, "cannot initialise"):
+                    Workarea.init(root)
+
+            self.assertFalse((root / ".cflsync").exists())
+            self.assertFalse(any(path.name.startswith(".cflsync-init-") for path in root.iterdir()))
 
 
 class TestWorkareaPageDirectory(unittest.TestCase):
@@ -131,6 +155,23 @@ class TestWorkareaMaterialization(unittest.TestCase):
                 workarea.stage_page("Other page", "content", {"../unsafe": b"x"})
 
             self.assertFalse((workarea.root_dir / "Other page").exists())
+
+    def test_interrupted_staging_removes_hidden_directory(self) -> None:
+        with temporary_workarea() as workarea:
+            write_text = Path.write_text
+
+            def interrupt_write(path, text, *args, **kwargs):
+                if any(part.startswith(".cflsync-stage-") for part in path.parts):
+                    raise KeyboardInterrupt()
+
+                return write_text(path, text, *args, **kwargs)
+
+            with patch.object(Path, "write_text", interrupt_write):
+                with self.assertRaises(KeyboardInterrupt):
+                    workarea.stage_page("Example page", "# Example\n", {})
+
+            self.assertFalse((workarea.root_dir / "Example page").exists())
+            self.assertFalse(any(path.name.startswith(".cflsync-stage-") for path in workarea.root_dir.iterdir()))
 
     def test_replaces_a_complete_page_directory(self) -> None:
         with temporary_workarea() as workarea:

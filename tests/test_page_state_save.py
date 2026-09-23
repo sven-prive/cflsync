@@ -41,5 +41,17 @@ class TestPageStateSave(unittest.TestCase):
 
             self.assertEqual(PageState.load(workarea.cache_path(previous.page.id)), previous)
 
+    def test_failed_temporary_state_write_removes_temporary_file(self) -> None:
+        with temporary_workarea() as workarea:
+            state = example_page_state()
+            path = workarea.cache_path(state.page.id)
+
+            with patch("cflsync.workarea.os.fsync", side_effect=OSError("injected failure")):
+                with self.assertRaisesRegex(StateError, "cannot write"):
+                    state.save(path)
+
+            self.assertFalse(path.exists())
+            self.assertEqual(list(workarea.cache_dir.glob(".*.tmp")), [])
+
 
 # vim: set ts=4 sw=4 et tw=132:

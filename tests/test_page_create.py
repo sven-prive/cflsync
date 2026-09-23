@@ -98,6 +98,7 @@ class TestPageCreate(unittest.TestCase):
                 MockResponse.from_json(page),
                 MockResponse.from_json(page),
                 MockResponse.from_json(page),
+                MockResponse.from_json({"message": "attachments unavailable"}, 503),
                 MockResponse.from_json({"message": "attachments unavailable"}, 503), ]
 
             with self.assertRaisesRegex(SyncError, "created page '123456'"):

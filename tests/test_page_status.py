@@ -159,5 +159,22 @@ class TestPageStatus(unittest.TestCase):
             self.assertEqual(self._snapshot(workarea), before)
             self.assertTrue(all(request.method == "GET" for request in transport.requests))
 
+    def test_retried_status_read_changes_nothing(self) -> None:
+        with temporary_workarea() as workarea:
+            self._pull(workarea)
+            before = self._snapshot(workarea)
+            page = self._page()
+            responses = [
+                MockResponse(503, {}, b""),
+                MockResponse.from_json(page),
+                MockResponse.from_json(page),
+                MockResponse.from_json({"results": [attachment_fixture()]})]
+
+            _, status, transport = self._run(workarea, lambda: PageStatusCommand().run("123456"), responses)
+
+            self.assertEqual(status, 0)
+            self.assertEqual(self._snapshot(workarea), before)
+            self.assertEqual([request.method for request in transport.requests], ["GET", "GET", "GET", "GET"])
+
 
 # vim: set ts=4 sw=4 et tw=132:

@@ -96,7 +96,10 @@ managed set must not be deleted.
 Each synchronized page has an atomically written `0600` cache entry at
 `.cflsync/cache/<page-id>.json`; `.cflsync` and `cache` use mode `0700`. Cache
 entries contain no credentials. Stable page IDs are cache keys, avoiding
-title-based collisions. Format 1 is:
+title-based collisions. Credential configuration is also atomically written
+with mode `0600` under a mode-`0700` configuration directory. Failed or
+interrupted initialization, staging, and private-file writes remove their
+temporary files or directories. Format 1 is:
 
 ```json
 {
@@ -129,6 +132,11 @@ locally and remotely.
 `page status PAGE_REF` compares local content with its cache entry and fetches
 remote page and attachment metadata. It reports each side as unchanged or
 changed without modifying the workarea.
+
+GET and HEAD requests retry once after a transport failure or HTTP 429, 502,
+503, or 504 response. POST, PUT, and DELETE requests are never retried
+implicitly, because their remote effects may be indeterminate after a failed
+request.
 
 Before either modifying operation, cflsync computes two independent changes:
 

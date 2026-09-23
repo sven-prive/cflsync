@@ -333,16 +333,26 @@ class Workarea:
         if cflsync_dir.exists():
             raise Workarea.Error(f"'{p}' already contains '{cflsync_dir.name}'")
 
-        cache_dir = cflsync_dir / "cache"
-        cflsync_dir.mkdir(mode=0o700)
-        cflsync_dir.chmod(0o700)
-        cache_dir.mkdir(mode=0o700)
-        cache_dir.chmod(0o700)
+        staging: Path | None = None
+        try:
+            staging = Path(mkdtemp(prefix=".cflsync-init-", dir=p))
+            cache_dir = staging / "cache"
+            cache_dir.mkdir(mode=0o700)
+            cache_dir.chmod(0o700)
 
-        profile_path = cflsync_dir / "profile"
-        with open(profile_path, "w") as f:
-            f.write(f"{profile}\n")
-        profile_path.chmod(0o600)
+            profile_path = staging / "profile"
+            with profile_path.open("w", encoding="utf-8") as profile_file:
+                profile_file.write(f"{profile}\n")
+                profile_file.flush()
+                os.fsync(profile_file.fileno())
+            profile_path.chmod(0o600)
+
+            os.replace(staging, cflsync_dir)
+        except OSError as error:
+            raise Workarea.Error(f"cannot initialise workarea: {error}") from error
+        finally:
+            if staging is not None:
+                shutil.rmtree(staging, ignore_errors=True)
 
         return cls(p)
 
@@ -453,6 +463,9 @@ class Workarea:
         except (OSError, TypeError) as error:
             shutil.rmtree(staging, ignore_errors=True)
             raise Workarea.Error(f"cannot stage page directory: {error}") from error
+        except BaseException:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
 
     @contextmanager
     def replace_page(self,

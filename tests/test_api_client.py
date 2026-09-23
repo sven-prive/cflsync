@@ -6,7 +6,7 @@
 import json
 import unittest
 
-from cflsync import APIClient, APIError, APIResponse
+from cflsync import APIClient, APIError, APIResponse, TransportError
 from tests.support import MockResponse, MockTransport
 
 
@@ -65,17 +65,70 @@ class TestAPIClientTransport(unittest.TestCase):
         with self.assertRaises(APIError) as raised:
             client.make_paginated_request("GET", "/pages")
         self.assertIsNone(raised.exception.status)
+        self.assertIn("valid JSON", str(raised.exception))
 
     def test_raises_an_api_error_for_http_errors(self) -> None:
         cases = [401, 403, 404, 409, 412, 429]
         for status in cases:
             with self.subTest(status=status):
                 transport = MockTransport([MockResponse(status, {}, b"")])
-                client = APIClient("example.atlassian.net", "user", "token", transport=transport)
+                client = APIClient("example.atlassian.net", "user", "token", transport=transport, read_attempts=1)
 
                 with self.assertRaises(APIError) as raised:
                     client.make_request("GET", "/pages")
                 self.assertEqual(raised.exception.status, status)
+
+    def test_retries_transient_read_failures(self) -> None:
+        transport = MockTransport([MockResponse(503, {}, b""), MockResponse.from_json({"id": "123456"})])
+        client = APIClient("example.atlassian.net", "user", "token", transport=transport)
+
+        response = client.make_request("GET", "/pages/123456")
+
+        self.assertEqual(response.body, b'{"id": "123456"}')
+        self.assertEqual(len(transport.requests), 2)
+
+    def test_retries_transient_transport_failures_for_reads(self) -> None:
+
+        class FlakyTransport:
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def clone(self, prefix=None):
+                return self
+
+            def make_request(self, method, path="", parameters=None, headers=None, body=None):
+                self.calls += 1
+                if self.calls == 1:
+                    raise TransportError("injected connection failure")
+
+                return MockResponse.from_json({"id": "123456"})
+
+        transport = FlakyTransport()
+        client = APIClient("example.atlassian.net", "user", "token", transport=transport)
+
+        self.assertEqual(client.make_request("GET", "/pages/123456").status, 200)
+        self.assertEqual(transport.calls, 2)
+
+    def test_never_retries_writes(self) -> None:
+        transport = MockTransport([MockResponse(503, {}, b""), MockResponse.from_json({})])
+        client = APIClient("example.atlassian.net", "user", "token", transport=transport)
+
+        with self.assertRaises(APIError) as raised:
+            client.make_request("PUT", "/pages/123456", body=b"{}")
+
+        self.assertEqual(raised.exception.status, 503)
+        self.assertEqual(len(transport.requests), 1)
+
+    def test_http_errors_explain_the_expected_remediation(self) -> None:
+        cases = [(401, "credentials"), (403, "permissions"), (404, "not found"), (409, "changed")]
+        for status, expected in cases:
+            with self.subTest(status=status):
+                transport = MockTransport([MockResponse(status, {}, b"")])
+                client = APIClient("example.atlassian.net", "user", "token", transport=transport, read_attempts=1)
+
+                with self.assertRaisesRegex(APIError, expected):
+                    client.make_request("GET", "/pages")
 
 
 # vim: set ts=4 sw=4 et tw=132:

@@ -6,7 +6,7 @@
 import os
 
 from .api import APIClient, APIError, APIResponse, RemoteAttachment, RemotePage
-from .config import Config, Profile
+from .config import Config, ConfigError, Profile
 from .convert import ADFToMarkdownConverter, ConversionError, MarkdownToADFConverter, PandocError, PandocRunner
 from .errors import SyncError
 from .sync import PageChanges, PageInspector
