@@ -27,13 +27,17 @@ as publishing platform rather than authoring environment.
 cflsync auth [-p PROFILE] [--list | --delete]
 cflsync init [-p PROFILE]
 cflsync page create PARENT_PAGE_ID TITLE
-cflsync page pull PAGE_REF
+cflsync page pull [-f | --force] PAGE_REF
 cflsync page push PAGE_REF
 cflsync page status PAGE_REF
 ```
 
 `PAGE_REF` may be a numeric Confluence page ID, an exact page title, a managed
 local `page.md` file, or a managed page directory.
+
+Pull reports when the page is already in sync. Use `page pull --force PAGE_REF`
+to prefer remote content, overwriting local edits to managed files even when
+the remote version is unchanged. Unmanaged files are preserved.
 
 Use `cflsync --help` for top-level help, `cflsync page --help` for page-command
 help, and `cflsync page COMMAND --help` for a command's arguments.

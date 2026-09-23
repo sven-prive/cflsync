@@ -13,12 +13,11 @@ from argparse import ArgumentParser
 from getpass import getpass
 from pathlib import Path
 
-from . import Workarea
 from .api import APIClient
 from .config import Config, Profile
 from .convert import ADFToMarkdownConverter, PandocRunner
 from .errors import SyncError
-from .workarea import AttachmentMetadata, MediaResolver, PageMetadata, PageRef, PageState
+from .workarea import AttachmentMetadata, MediaResolver, PageMetadata, PageRef, PageState, Workarea
 
 
 class InitCommand:
@@ -85,13 +84,15 @@ class PagePullCommand:
 
     def configure(self, subparsers):
         page_pull_parser = subparsers.add_parser("pull", help="pull a page from Confluence Cloud")
+        page_pull_parser.add_argument(
+            "-f", "--force", action="store_true", help="prefer remote content, overwriting local changes to managed files")
         page_pull_parser.add_argument("page_ref", help="page ID, title, page.md file, or page directory")
         page_pull_parser.set_defaults(command=self)
 
     def __call__(self, args):
-        return self.run(args.page_ref)
+        return self.run(args.page_ref, force=args.force)
 
-    def run(self, page_ref: str) -> int:
+    def run(self, page_ref: str, force: bool = False) -> int:
         try:
             workarea = Workarea.find(Path.cwd())
             config = Config.find()
@@ -102,13 +103,13 @@ class PagePullCommand:
             api = APIClient(profile.hostname, profile.username, profile.apitoken)
             reference = PageRef.resolve(page_ref, workarea, api)
             page = api.get_page(reference.page_id)
-            self._pull(workarea, page, PandocRunner())
+            self._pull(workarea, page, PandocRunner(), force)
         except (OSError, UnicodeError) as error:
             raise SyncError(f"cannot pull page: {error}") from error
 
         return 0
 
-    def _pull(self, workarea, page, pandoc):
+    def _pull(self, workarea, page, pandoc, force=False):
         attachments = page.attachments()
         MediaResolver((attachment.filename, attachment.id) for attachment in attachments)
         cache_path = workarea.cache_path(page.id)
@@ -116,11 +117,15 @@ class PagePullCommand:
         source = None
         if cache_path.exists():
             previous = PageState.load(cache_path)
-            source = workarea.page_directory(previous)
-            if self._local_changed(source, previous, pandoc):
+            source = workarea.page_directory(previous, must_exist=not force)
+            if force and not source.exists():
+                source = None
+
+            if not force and self._local_changed(source, previous, pandoc):
                 raise SyncError(f"page '{page.id}' has local changes; pull conflicts")
 
-            if not self._remote_changed(page, attachments, previous):
+            if not force and not self._remote_changed(page, attachments, previous):
+                print(f"Page '{page.id}' is already in sync; nothing pulled. Use --force to regenerate local content.")
                 return
 
         directory_name = workarea.page_directory_name(page.title)
@@ -142,7 +147,7 @@ class PagePullCommand:
         if not isinstance(document, dict):
             raise SyncError(f"page '{page.id}' ADF must be an object")
 
-        markdown = ADFToMarkdownConverter(pandoc).convert(document)
+        markdown = ADFToMarkdownConverter(pandoc).convert(document, title=page.title)
         bodies = {}
         metadata = {}
         for attachment in attachments:

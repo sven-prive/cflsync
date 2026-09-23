@@ -29,11 +29,11 @@ class ADFToMarkdownConverter:
     def __init__(self, pandoc) -> None:
         self._pandoc_runner = pandoc
 
-    def convert(self, document: Mapping[str, object]) -> str:
-        """Convert one ADF document to GFM."""
-        return self._pandoc_runner.pandoc_to_gfm(self._to_pandoc(document))
+    def convert(self, document: Mapping[str, object], title: str | None = None) -> str:
+        """Convert an ADF body to GFM, optionally prefixed by its page title."""
+        return self._pandoc_runner.pandoc_to_gfm(self._to_pandoc(document, title))
 
-    def _to_pandoc(self, document):
+    def _to_pandoc(self, document, title=None):
         if document.get("type") != "doc" or document.get("version") != 1:
             raise ConversionError("ADF document must have type 'doc' and version 1")
 
@@ -44,7 +44,15 @@ class ADFToMarkdownConverter:
         if not isinstance(content, list):
             raise ConversionError("ADF document content must be a list")
 
-        return {"pandoc-api-version": list(PANDOC_API_VERSION), "meta": {}, "blocks": self._convert_blocks(content)}
+        blocks = self._convert_blocks(content)
+        if title is not None:
+            inlines = self._convert_text({"type": "text", "text": title})
+            if not title or inlines is None:
+                raise ConversionError("page title must be non-empty single-line text")
+
+            blocks.insert(0, {"t": "Header", "c": [1, ["", [], []], inlines]})
+
+        return {"pandoc-api-version": list(PANDOC_API_VERSION), "meta": {}, "blocks": blocks}
 
     def _convert_blocks(self, nodes):
         blocks = []
@@ -82,7 +90,17 @@ class ADFToMarkdownConverter:
         return self._convert_opaque(node)
 
     def _convert_paragraph(self, node):
-        inlines = self._convert_inlines(node)
+        attrs = node.get("attrs", {})
+        if not isinstance(attrs, Mapping) or set(attrs) - {"localId"}:
+            return self._convert_opaque(node)
+
+        if "localId" in attrs and not isinstance(attrs["localId"], str):
+            return self._convert_opaque(node)
+
+        paragraph = dict(node)
+        paragraph.pop("attrs", None)
+        paragraph.setdefault("content", [])
+        inlines = self._convert_inlines(paragraph)
         if inlines is None:
             return self._convert_opaque(node)
 
@@ -93,7 +111,10 @@ class ADFToMarkdownConverter:
             return self._convert_opaque(node)
 
         attrs = node.get("attrs")
-        if not isinstance(attrs, Mapping) or set(attrs) != {"level"}:
+        if not isinstance(attrs, Mapping) or "level" not in attrs or set(attrs) - {"level", "localId"}:
+            return self._convert_opaque(node)
+
+        if "localId" in attrs and not isinstance(attrs["localId"], str):
             return self._convert_opaque(node)
 
         level = attrs.get("level")
@@ -101,7 +122,7 @@ class ADFToMarkdownConverter:
         if type(level) is not int or not 1 <= level <= 6 or inlines is None:
             return self._convert_opaque(node)
 
-        return {"t": "Header", "c": [level, ["", [], []], inlines]}
+        return {"t": "Header", "c": [max(2, level), ["", [], []], inlines]}
 
     def _convert_blockquote(self, node):
         content = self._convert_block_content(node)

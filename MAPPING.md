@@ -35,15 +35,24 @@ ADF JSON in a Pandoc code block, which Pandoc writes as a fenced GFM block.
 | `{ "type": "doc", "version": 1, "content": [...] }` | `Pandoc Meta [Block]` |
 | Empty ADF document | `Pandoc Meta []` |
 
-ADF page metadata such as page ID, title, version, and parent is not body
-content. It remains in the cflsync page cache rather than Pandoc metadata.
+ADF page metadata remains in the cflsync page cache rather than Pandoc
+metadata. For page conversion, the caller supplies the title from page
+metadata; it becomes the first and only level-one Markdown heading. Body
+level-one headings become level two; levels two through six remain unchanged.
+The converter itself has no cache access. Pull supplies the fetched title
+that will be recorded in the cache, including on first pull and title changes.
+Body-only conversion may omit the title.
+
+The generated title heading is presentation metadata, not an ADF body node.
+Removing it before conversion back to ADF remains a requirement for the future
+page push integration.
 
 ## Direct block mappings
 
 | ADF node | Pandoc AST | Reverse ADF node |
 | --- | --- | --- |
 | `paragraph` | `Para` | `paragraph` |
-| `heading` with `attrs.level` 1–6 | `Header level` | `heading` with `attrs.level` |
+| `heading` with `attrs.level` 1–6 | `Header max(2, level)` | `heading` with `attrs.level` |
 | `blockquote` | `BlockQuote` | `blockquote` |
 | `bulletList` and `listItem` | `BulletList` | `bulletList` and `listItem` |
 | `orderedList` and `listItem` | `OrderedList` | `orderedList` and `listItem` |
@@ -53,6 +62,12 @@ content. It remains in the cflsync page cache rather than Pandoc metadata.
 ADF list attributes that Pandoc represents—principally ordered-list start
 number—are retained. Unsupported list, heading, code-block, or layout
 attributes cause the smallest enclosing ADF block to use opaque retention.
+
+Headings and paragraphs accept Confluence's `attrs.localId` as editor metadata;
+it is omitted from Markdown and is not preserved on conversion back to ADF.
+Other unsupported attributes still cause opaque retention. A paragraph with
+omitted or empty `content` converts to an empty paragraph, which Pandoc omits
+from canonical GFM.
 
 ## Direct inline mappings
 

@@ -380,9 +380,12 @@ class Workarea:
 
         return paths
 
-    def page_directory(self, state: PageState) -> Path:
-        """Return the existing managed directory recorded in *state*."""
+    def page_directory(self, state: PageState, must_exist: bool = True) -> Path:
+        """Return the safe managed path, normally requiring a directory and page.md."""
         directory = self._page_directory_path(state.page.directory)
+        if not must_exist:
+            return directory
+
         if not directory.is_dir():
             raise Workarea.Error("managed page directory does not exist")
         if not (directory / "page.md").is_file():

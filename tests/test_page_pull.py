@@ -4,6 +4,8 @@
 """Pull decisions and rollback against a recorded HTTP transport."""
 
 import hashlib
+from contextlib import redirect_stdout
+from io import StringIO
 import json
 import os
 from pathlib import Path
@@ -34,7 +36,7 @@ class TestPagePull(unittest.TestCase):
 
         return page
 
-    def _pull(self, workarea, page=None, attachments=None, downloads=None):
+    def _pull(self, workarea, page=None, attachments=None, downloads=None, force=False):
         if page is None:
             page = self._page()
 
@@ -55,7 +57,7 @@ class TestPagePull(unittest.TestCase):
         with patch("cflsync.cli.Path.cwd", return_value=workarea.root_dir):
             with patch("cflsync.cli.Config.find", return_value=config):
                 with patch("cflsync.cli.APIClient", return_value=client):
-                    self.assertEqual(PagePullCommand().run("123456"), 0)
+                    self.assertEqual(PagePullCommand().run("123456", force=force), 0)
 
         self.assertTrue(all(request.method == "GET" for request in transport.requests))
 
@@ -72,9 +74,9 @@ class TestPagePull(unittest.TestCase):
             state = PageState.load(workarea.cache_path("123456"))
             directory = workarea.page_directory(state)
 
-            self.assertEqual((directory / "page.md").read_text(), "Example\n")
+            self.assertEqual((directory / "page.md").read_text(), "# Example page\n\nExample\n")
             self.assertEqual((directory / "_attachments/diagram.png").read_bytes(), b"PNG")
-            self.assertEqual(state.page.content_hash, hashlib.sha256(b"Example\n").hexdigest())
+            self.assertEqual(state.page.content_hash, hashlib.sha256(b"# Example page\n\nExample\n").hexdigest())
             self.assertEqual(state.attachments["diagram.png"].content_hash, hashlib.sha256(b"PNG").hexdigest())
             self.assertEqual(workarea.cache_path("123456").stat().st_mode & 0o777, 0o600)
             self.assertIn("/next", [request.path for request in transport.requests])
@@ -82,14 +84,71 @@ class TestPagePull(unittest.TestCase):
     def test_unchanged_and_formatting_only_changes_are_noops(self) -> None:
         with temporary_workarea() as workarea:
             self._pull(workarea)
-            for markdown in ["Example\n", "Example\n\n\n"]:
+            for markdown in ["# Example page\n\nExample\n", "# Example page\n\nExample\n\n\n"]:
                 with self.subTest(markdown=markdown):
                     (workarea.root_dir / "Example page/page.md").write_text(markdown)
                     before = self._snapshot(workarea)
-                    transport = self._pull(workarea, downloads=[])
+                    output = StringIO()
+                    with redirect_stdout(output):
+                        transport = self._pull(workarea, downloads=[])
 
                     self.assertEqual(self._snapshot(workarea), before)
                     self.assertEqual(len(transport.requests), 4)
+                    self.assertIn("already in sync; nothing pulled", output.getvalue())
+
+    def test_force_regenerates_unchanged_content(self) -> None:
+        with temporary_workarea() as workarea:
+            self._pull(workarea)
+            output = StringIO()
+            with patch("cflsync.cli.ADFToMarkdownConverter.convert", return_value="# Example page\n\nRegenerated\n"):
+                with redirect_stdout(output):
+                    transport = self._pull(workarea, force=True)
+
+            state = PageState.load(workarea.cache_path("123456"))
+            markdown = (workarea.page_directory(state) / "page.md").read_bytes()
+            self.assertEqual(markdown, b"# Example page\n\nRegenerated\n")
+            self.assertEqual(state.page.content_hash, hashlib.sha256(markdown).hexdigest())
+            self.assertEqual(len(transport.requests), 5)
+            self.assertNotIn("nothing pulled", output.getvalue())
+
+    def test_force_prefers_remote_over_local_and_concurrent_changes(self) -> None:
+        for version in [17, 18]:
+            with self.subTest(version=version):
+                with temporary_workarea() as workarea:
+                    self._pull(workarea)
+                    directory = workarea.root_dir / "Example page"
+                    (directory / "page.md").write_bytes(b"\xffinvalid markdown")
+                    (directory / "_attachments/diagram.png").write_bytes(b"edited")
+                    (directory / "_attachments/local.txt").write_text("unmanaged")
+                    self._pull(workarea, page=self._page(version), force=True)
+
+                    state = PageState.load(workarea.cache_path("123456"))
+                    self.assertEqual((directory / "page.md").read_text(), "# Example page\n\nExample\n")
+                    self.assertEqual((directory / "_attachments/diagram.png").read_bytes(), b"PNG")
+                    self.assertEqual((directory / "_attachments/local.txt").read_text(), "unmanaged")
+                    self.assertEqual(state.page.version, version)
+
+    def test_force_restores_deleted_managed_files(self) -> None:
+        with temporary_workarea() as workarea:
+            self._pull(workarea)
+            directory = workarea.root_dir / "Example page"
+            (directory / "page.md").unlink()
+            (directory / "_attachments/diagram.png").unlink()
+            self._pull(workarea, force=True)
+
+            self.assertEqual((directory / "page.md").read_text(), "# Example page\n\nExample\n")
+            self.assertEqual((directory / "_attachments/diagram.png").read_bytes(), b"PNG")
+
+    def test_failed_force_pull_preserves_local_edits_and_cache(self) -> None:
+        with temporary_workarea() as workarea:
+            self._pull(workarea)
+            (workarea.root_dir / "Example page/page.md").write_text("local edits")
+            before = self._snapshot(workarea)
+            with patch.object(PageState, "save", side_effect=SyncError("injected state failure")):
+                with self.assertRaises(SyncError):
+                    self._pull(workarea, force=True)
+
+            self.assertEqual(self._snapshot(workarea), before)
 
     def test_local_and_both_sides_changes_conflict_without_mutation(self) -> None:
         for version in [17, 18]:

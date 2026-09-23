@@ -6,7 +6,7 @@
 cflsync auth [-p PROFILE] [--list | --delete]
 cflsync init [-p PROFILE]
 cflsync page create PARENT_PAGE_ID TITLE
-cflsync page pull PAGE_REF
+cflsync page pull [-f | --force] PAGE_REF
 cflsync page push PAGE_REF
 cflsync page status PAGE_REF
 ```
@@ -144,10 +144,19 @@ The page and its complete managed attachment set are one atomic unit:
 | changed | unchanged | conflict | upload local page and attachment set |
 | changed | changed | conflict | conflict |
 
-A conflict does not alter local files, remote content, or the cache entry. A
-future explicit resolution command handles it; automatic merging is outside
+A conflict does not alter local files, remote content, or the cache entry.
+Explicit force options select which side wins; automatic merging is outside
 scope. Remote updates use the current Confluence page version. A version
 mismatch is a conflict even if an earlier check found no change.
+
+An unchanged pull reports that local and remote content are already in sync
+and nothing was pulled. `page pull -f` (or `--force`) bypasses this no-op and
+downloads and regenerates the local representation, for example after a
+converter update. It also resolves conflicts in favor of the remote version:
+local changes to managed files are overwritten, and missing managed files are
+restored. Unmanaged files remain protected, and failed pulls retain the previous
+local files and cache. The planned `page push --force` will resolve conflicts
+in favor of local content; push is not implemented yet.
 
 `page pull` stages downloads, conversion, attachment-path validation, and
 content validation in a temporary directory, then swaps local representation
