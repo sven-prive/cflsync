@@ -78,7 +78,26 @@ class PageCreateCommand:
         return self.run(args.parent_page_id, args.title)
 
     def run(self, parent_page_id: str, title: str) -> int:
-        raise SyncError("page create is not implemented")
+        if not parent_page_id.isdigit():
+            raise SyncError(f"parent page ID '{parent_page_id}' must be a numeric identifier")
+
+        if not title.strip() or title.strip() != title or "\n" in title or "\r" in title or "\t" in title:
+            raise SyncError("page title must be non-empty single-line text without surrounding whitespace")
+
+        try:
+            workarea, api = _open_workarea()
+            parent = api.get_page(parent_page_id)
+            if parent.space_id is None:
+                raise SyncError(f"parent page '{parent_page_id}' reports no space")
+
+            page = api.create_page(parent.space_id, parent.id, title)
+        except (OSError, UnicodeError) as error:
+            raise SyncError(f"cannot create page: {error}") from error
+
+        try:
+            return PagePullCommand().run(page.id)
+        except SyncError as error:
+            raise SyncError(f"created page '{page.id}' remotely but could not pull it: {error}") from error
 
 
 class PagePullCommand:
@@ -95,13 +114,7 @@ class PagePullCommand:
 
     def run(self, page_ref: str, force: bool = False) -> int:
         try:
-            workarea = Workarea.find(Path.cwd())
-            config = Config.find()
-            profile = config.profiles.get(workarea.profile)
-            if profile is None:
-                raise SyncError(f"credential profile '{workarea.profile}' does not exist")
-
-            api = APIClient(profile.hostname, profile.username, profile.apitoken)
+            workarea, api = _open_workarea()
             reference = PageRef.resolve(page_ref, workarea, api)
             page = api.get_page(reference.page_id)
             self._pull(workarea, page, PandocRunner(), force)
@@ -259,6 +272,15 @@ def main(argv: Sequence[str]) -> int:
     except SyncError as error:
         print(f"{parser.prog}: {error}", file=sys.stderr)
         return 1
+
+
+def _open_workarea():
+    workarea = Workarea.find(Path.cwd())
+    profile = Config.find().profiles.get(workarea.profile)
+    if profile is None:
+        raise SyncError(f"credential profile '{workarea.profile}' does not exist")
+
+    return workarea, APIClient(profile.hostname, profile.username, profile.apitoken)
 
 
 def _print_usage(parser: ArgumentParser) -> int:
