@@ -16,7 +16,7 @@ from pathlib import Path
 
 from .api import APIClient
 from .config import Config, Profile
-from .convert import ADFToMarkdownConverter, PandocRunner
+from .convert import ADFToMarkdownConverter, MarkdownToADFConverter, PandocRunner
 from .errors import SyncError
 from .sync import PageInspector
 from .workarea import AttachmentMetadata, MediaResolver, PageMetadata, PageRef, PageState, Workarea
@@ -195,14 +195,94 @@ class PagePushCommand:
 
     def configure(self, subparsers: _SubParsersAction[ArgumentParser]) -> None:
         page_push_parser = subparsers.add_parser("push", help="push a page to Confluence Cloud")
+        page_push_parser.add_argument("-f", "--force", action="store_true", help="prefer local content, overwriting remote changes")
         page_push_parser.add_argument("page_ref", help="page ID, title, page.md file, or page directory")
         page_push_parser.set_defaults(command=self)
 
     def __call__(self, args: Namespace) -> int:
-        return self.run(args.page_ref)
+        return self.run(args.page_ref, force=args.force)
 
-    def run(self, page_ref: str) -> int:
-        raise SyncError("page push is not implemented")
+    def run(self, page_ref: str, force: bool = False) -> int:
+        try:
+            workarea, api = _open_workarea()
+            reference = PageRef.resolve(page_ref, workarea, api)
+            cache_path = workarea.cache_path(reference.page_id)
+            if not cache_path.exists():
+                raise SyncError(f"page '{reference.page_id}' is not managed in this workarea")
+
+            state = PageState.load(cache_path)
+            page = api.get_page(reference.page_id)
+            self._push(workarea, page, state, cache_path, PandocRunner(), force)
+        except (OSError, UnicodeError) as error:
+            raise SyncError(f"cannot push page: {error}") from error
+
+        return 0
+
+    def _push(self, workarea, page, state, cache_path, pandoc, force=False):
+        inspector = PageInspector(pandoc)
+        directory = workarea.page_directory(state)
+        attachments = page.attachments()
+        changes = inspector.inspect(directory, state, page, attachments)
+        if not force:
+            if changes.remotely:
+                raise SyncError(f"page '{page.id}' has remote changes; push conflicts")
+
+            if not changes.locally:
+                print(f"Page '{page.id}' is already in sync; nothing pushed. Use --force to upload local content.")
+                return
+
+        markdown = (directory / "page.md").read_text(encoding="utf-8")
+        bodies = self._managed_attachments(directory, state, inspector, markdown)
+        self._upload_attachments(page, state, bodies, attachments)
+        # Re-read the manifest so new uploads contribute their server-assigned file IDs.
+        remote = {attachment.filename: attachment for attachment in page.attachments()}
+        document = self._convert(pandoc, markdown, page, bodies, remote)
+        updated = page.update(json.dumps(document))
+        self._delete_removed_attachments(state, bodies, remote)
+
+        attachments = {}
+        for name, body in bodies.items():
+            attachments[name] = AttachmentMetadata(remote[name].id, remote[name].version, hashlib.sha256(body).hexdigest())
+
+        PageState(
+            PageMetadata(updated.id, updated.title, state.page.directory, updated.version, inspector.content_hash(markdown)),
+            attachments).save(cache_path)
+
+    def _managed_attachments(self, directory, state, inspector, markdown):
+        """Return the bytes of every managed attachment still present locally."""
+        names = set(state.attachments) | set(inspector.referenced_attachments(markdown))
+        bodies = {}
+        for name in sorted(names):
+            path = directory / "_attachments" / name
+            if path.is_file():
+                bodies[name] = path.read_bytes()
+
+        return bodies
+
+    def _upload_attachments(self, page, state, bodies, attachments):
+        remote = {attachment.filename: attachment for attachment in attachments}
+        for name, body in bodies.items():
+            existing = remote.get(name)
+            if existing is None:
+                page.create_attachment(name, body)
+                continue
+
+            cached = state.attachments.get(name)
+            local_hash = hashlib.sha256(body).hexdigest()
+            if cached is None or cached.content_hash != local_hash or (existing.id, existing.version) != (cached.id,
+                                                                                                          cached.version):
+                existing.update(body)
+
+    def _delete_removed_attachments(self, state, bodies, remote):
+        for name in state.attachments:
+            if name not in bodies and name in remote:
+                remote[name].delete()
+
+    def _convert(self, pandoc, markdown, page, bodies, remote):
+        # Attachments without a server-assigned file ID cannot be referenced from ADF.
+        media = MediaResolver(
+            (name, remote[name].file_id) for name in bodies if name in remote and remote[name].file_id is not None)
+        return MarkdownToADFConverter(pandoc, media, f"contentId-{page.id}").convert(markdown, title=page.title)
 
 
 class PageStatusCommand:

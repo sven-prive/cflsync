@@ -356,10 +356,28 @@ class ADFToMarkdownConverter:
         if node_type == "text":
             return self._convert_text(node)
 
+        if node_type == "mediaInline":
+            return self._convert_media_inline(node)
+
         return None
 
     def _convert_hard_break(self, node):
         return [{"t": "LineBreak"}]
+
+    def _convert_media_inline(self, node):
+        attrs = node.get("attrs")
+        if not isinstance(attrs, Mapping):
+            return None
+
+        path = self._media_path(attrs)
+        if path is None:
+            return None
+
+        inline = self._convert_media_target(path, attrs.get("alt"))
+        if inline is None:
+            return None
+
+        return [inline]
 
     def _convert_text(self, node):
         text = node.get("text")
@@ -458,11 +476,11 @@ class MarkdownToADFConverter:
         self._media = media
         self._collection = collection
 
-    def convert(self, markdown: str) -> Mapping[str, object]:
-        """Convert one GFM document to ADF."""
-        return self._to_adf(self._pandoc_runner.gfm_to_pandoc(markdown))
+    def convert(self, markdown: str, title: str | None = None) -> Mapping[str, object]:
+        """Convert one GFM document to ADF, removing the page-title heading when given."""
+        return self._to_adf(self._pandoc_runner.gfm_to_pandoc(markdown), title)
 
-    def _to_adf(self, pandoc):
+    def _to_adf(self, pandoc, title=None):
         if not isinstance(pandoc, Mapping):
             raise ConversionError("Pandoc document must be an object")
 
@@ -480,7 +498,25 @@ class MarkdownToADFConverter:
         if not isinstance(blocks, list):
             raise ConversionError("Pandoc document blocks must be a list")
 
+        if title is not None:
+            blocks = self._without_title(blocks, title)
+
         return {"type": "doc", "version": 1, "content": self._convert_blocks(blocks)}
+
+    def _without_title(self, blocks, title):
+        """Drop the leading level-1 heading that the forward conversion adds for *title*."""
+        heading = blocks[0] if blocks else None
+        if not isinstance(heading, Mapping) or heading.get("t") != "Header":
+            raise ConversionError(f"page must start with a level 1 heading holding the title '{title}'")
+
+        value = heading.get("c")
+        if not isinstance(value, list) or len(value) != 3 or value[0] != 1:
+            raise ConversionError(f"page must start with a level 1 heading holding the title '{title}'")
+
+        if self._plain_text(value[2]) != title:
+            raise ConversionError(f"title heading does not match the page title '{title}'; renaming is not supported")
+
+        return blocks[1:]
 
     def _convert_blocks(self, pandoc_blocks):
         blocks = []
@@ -549,10 +585,22 @@ class MarkdownToADFConverter:
             raise ConversionError("Pandoc heading has invalid content")
 
         level, attributes, inlines = value
-        if type(level) is not int or not 1 <= level <= 6 or attributes != ["", [], []] or not isinstance(inlines, list):
+        # Reading GFM assigns each heading an implicit identifier, which ADF has no use for.
+        if type(level) is not int or not 1 <= level <= 6 or not self._is_heading_attributes(attributes):
             raise ConversionError("Pandoc heading has unsupported attributes")
 
+        if not isinstance(inlines, list):
+            raise ConversionError("Pandoc heading has invalid content")
+
         return {"type": "heading", "attrs": {"level": level}, "content": self._convert_inline_nodes(inlines)}
+
+    def _is_heading_attributes(self, attributes):
+        if not isinstance(attributes, list) or len(attributes) != 3:
+            return False
+
+        identifier, classes, key_values = attributes
+
+        return isinstance(identifier, str) and classes == [] and key_values == []
 
     def _convert_blockquote(self, pandoc_block):
         if not self._has_fields(pandoc_block, {"t", "c"}):
@@ -726,8 +774,9 @@ class MarkdownToADFConverter:
         if not images:
             return None
 
+        # Images sharing a paragraph with other content become inline media instead.
         if any(not isinstance(inline, Mapping) or inline.get("t") not in {"Image", "Space"} for inline in value):
-            raise ConversionError("Pandoc image must be the only content of its paragraph")
+            return None
 
         content = [self._convert_image(image) for image in images]
         if len(content) == 1:
@@ -735,7 +784,21 @@ class MarkdownToADFConverter:
 
         return {"type": "mediaGroup", "content": content}
 
+    def _convert_inline_image(self, pandoc_inline, inlines, marks):
+        attrs = self._image_attrs(pandoc_inline)
+        if attrs["type"] != "file":
+            raise ConversionError("an inline image must reference a managed attachment")
+
+        if marks:
+            inlines.append({"type": "mediaInline", "attrs": attrs, "marks": list(marks)})
+            return
+
+        inlines.append({"type": "mediaInline", "attrs": attrs})
+
     def _convert_image(self, pandoc_inline):
+        return {"type": "media", "attrs": self._image_attrs(pandoc_inline)}
+
+    def _image_attrs(self, pandoc_inline):
         if not self._has_fields(pandoc_inline, {"t", "c"}):
             raise ConversionError("Pandoc image has unsupported fields")
 
@@ -756,11 +819,11 @@ class MarkdownToADFConverter:
         else:
             attrs = {"type": "external", "url": url}
 
-        alt = self._image_alt(description)
+        alt = self._plain_text(description)
         if alt:
             attrs["alt"] = alt
 
-        return {"type": "media", "attrs": attrs}
+        return attrs
 
     def _media_id(self, url):
         if self._media is None:
@@ -774,18 +837,18 @@ class MarkdownToADFConverter:
 
         return self._collection
 
-    def _image_alt(self, description):
+    def _plain_text(self, inlines):
         text = []
-        for inline in description:
+        for inline in inlines:
             if not isinstance(inline, Mapping):
-                raise ConversionError("Pandoc image description must contain inlines")
+                raise ConversionError("Pandoc inlines must be objects")
 
             if inline.get("t") == "Space":
                 text.append(" ")
             elif inline.get("t") == "Str" and isinstance(inline.get("c"), str):
                 text.append(inline["c"])
             else:
-                raise ConversionError("Pandoc image description must be plain text")
+                raise ConversionError("only plain text is supported here")
 
         return "".join(text)
 
@@ -834,6 +897,10 @@ class MarkdownToADFConverter:
 
         if node_type == "LineBreak":
             self._convert_hard_break(pandoc_inline, inlines, marks)
+            return
+
+        if node_type == "Image":
+            self._convert_inline_image(pandoc_inline, inlines, marks)
             return
 
         if node_type == "Strong":

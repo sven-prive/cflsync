@@ -28,6 +28,7 @@ def attachment_fixture() -> dict[str, object]:
         "id": "att567890",
         "title": "diagram.png",
         "mediaType": "image/png",
+        "fileId": "file-diagram",
         "version": {
             "number": 3},
         "_links": {

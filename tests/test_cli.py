@@ -29,19 +29,20 @@ class TestPageCommandDispatch(unittest.TestCase):
                     result = main(["cflsync", "page", command_name, "Example page"])
 
                 self.assertEqual(result, 0)
-                if command_name == "pull":
-                    run.assert_called_once_with("Example page", force=False)
-                else:
+                if command_name == "status":
                     run.assert_called_once_with("Example page")
+                else:
+                    run.assert_called_once_with("Example page", force=False)
 
-    def test_dispatches_force_pull_options(self) -> None:
-        for option in ["-f", "--force"]:
-            with self.subTest(option=option):
-                with patch.object(PagePullCommand, "run", return_value=0) as run:
-                    result = main(["cflsync", "page", "pull", option, "Example page"])
+    def test_dispatches_force_options(self) -> None:
+        for command_name, command_type in [("pull", PagePullCommand), ("push", PagePushCommand)]:
+            for option in ["-f", "--force"]:
+                with self.subTest(command=command_name, option=option):
+                    with patch.object(command_type, "run", return_value=0) as run:
+                        result = main(["cflsync", "page", command_name, option, "Example page"])
 
-                self.assertEqual(result, 0)
-                run.assert_called_once_with("Example page", force=True)
+                    self.assertEqual(result, 0)
+                    run.assert_called_once_with("Example page", force=True)
 
     def test_page_help_lists_every_documented_page_command(self) -> None:
         output = StringIO()

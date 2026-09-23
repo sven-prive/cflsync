@@ -50,8 +50,8 @@ that will be recorded in the cache, including on first pull and title changes.
 Body-only conversion may omit the title.
 
 The generated title heading is presentation metadata, not an ADF body node.
-Removing it before conversion back to ADF remains a requirement for the future
-page push integration.
+Reverse conversion removes it when the caller supplies the title, and rejects a
+heading that no longer matches, because push does not rename pages.
 
 ## Direct block mappings
 
@@ -68,6 +68,8 @@ page push integration.
 Handlers validate and convert meaningful fields such as heading level,
 ordered-list start number, and code language. Other attributes, including
 `localId` and presentation attributes, are ignored for these supported nodes.
+Reading GFM gives every heading an implicit Pandoc identifier, which the reverse
+mapping ignores since ADF has no counterpart.
 A paragraph with omitted or empty `content` converts to an empty paragraph,
 which Pandoc omits from canonical GFM. Malformed required values cause opaque
 fallback; malformed document structure may instead raise a conversion error.
@@ -120,10 +122,15 @@ inlines when the page attachment manifest resolves the ADF media identifier to
 a managed local `_attachments/<filename>` path. `Image` is used for filenames
 with an image suffix and `Link` otherwise, since the ADF media node carries no
 media type. External media uses its own URL and needs no manifest. The reverse
-mapping uses the manifest to reconstruct the corresponding ADF media node; a
-paragraph mixing an image with other content has no ADF equivalent and is
-rejected. Media that the manifest cannot resolve stays opaque, as does
-`mediaInline`. Layout, width, and height attributes are dropped.
+mapping uses the manifest to reconstruct the corresponding ADF media node.
+Media that the manifest cannot resolve stays opaque. Layout, width, and height
+attributes are dropped.
+
+`mediaInline` maps to a Pandoc `Image` or `Link` inside its paragraph, and an
+image that shares a paragraph with other content maps back to `mediaInline`. An
+image alone in a paragraph is `mediaSingle` in both directions, so a lone
+`mediaInline` becomes `mediaSingle` after a round trip. An inline image outside
+`_attachments/` is rejected, since ADF inline media has no external form.
 
 ## Opaque ADF retention
 
@@ -151,8 +158,8 @@ into an ADF `codeBlock`.
 
 ### Retention granularity
 
-ADF has inline nodes such as `status`, `mention`, `date`, `emoji`,
-`inlineCard`, and `mediaInline`. A GFM fence is a block construct and cannot
+ADF has inline nodes such as `status`, `mention`, `date`, `emoji`, and
+`inlineCard`. A GFM fence is a block construct and cannot
 occupy a position inside a Pandoc `Para` or `Header`.
 
 Therefore, when an unsupported inline node occurs, the ADF reader

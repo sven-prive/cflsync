@@ -7,7 +7,7 @@ cflsync auth [-p PROFILE] [--list | --delete]
 cflsync init [-p PROFILE]
 cflsync page create PARENT_PAGE_ID TITLE
 cflsync page pull [-f | --force] PAGE_REF
-cflsync page push PAGE_REF
+cflsync page push [-f | --force] PAGE_REF
 cflsync page status PAGE_REF
 ```
 
@@ -157,8 +157,16 @@ downloads and regenerates the local representation, for example after a
 converter update. It also resolves conflicts in favor of the remote version:
 local changes to managed files are overwritten, and missing managed files are
 restored. Unmanaged files remain protected, and failed pulls retain the previous
-local files and cache. The planned `page push --force` will resolve conflicts
-in favor of local content; push is not implemented yet.
+local files and cache. `page push -f` (or `--force`) is the mirror image: it
+bypasses the push no-op and resolves conflicts in favor of local content,
+uploading it over remote changes. The update still uses the current Confluence
+version, so a concurrent edit between the check and the update is a conflict.
+
+Push never writes local files. It uploads new and changed managed attachments,
+converts `page.md` to ADF, updates the page, and deletes previously managed
+attachments removed locally, in that order. The title heading that pull adds is
+removed before conversion and is not part of the body; editing it is rejected,
+because push does not rename pages.
 
 `page pull` stages downloads, conversion, attachment-path validation, and
 content validation in a temporary directory. For an existing page it preserves

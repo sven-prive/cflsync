@@ -28,7 +28,7 @@ cflsync auth [-p PROFILE] [--list | --delete]
 cflsync init [-p PROFILE]
 cflsync page create PARENT_PAGE_ID TITLE
 cflsync page pull [-f | --force] PAGE_REF
-cflsync page push PAGE_REF
+cflsync page push [-f | --force] PAGE_REF
 cflsync page status PAGE_REF
 ```
 
@@ -38,6 +38,11 @@ local `page.md` file, or a managed page directory.
 Pull reports when the page is already in sync. Use `page pull --force PAGE_REF`
 to prefer remote content, overwriting local edits to managed files even when
 the remote version is unchanged. Unmanaged files are preserved.
+
+Push reports when there is nothing to upload, and refuses to overwrite remote
+changes. Use `page push --force PAGE_REF` to prefer local content. The first
+heading of `page.md` is the page title and cannot be edited; push does not
+rename pages.
 
 Use `cflsync --help` for top-level help, `cflsync page --help` for page-command
 help, and `cflsync page COMMAND --help` for a command's arguments.

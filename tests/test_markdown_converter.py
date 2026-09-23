@@ -313,6 +313,18 @@ class TestMarkdownToADFConverter(unittest.TestCase):
                 self.assertEqual(markdown.lstrip().startswith("<table"), name == "html")
                 self.assertEqual(reverse.convert(markdown), source)
 
+    def test_accepts_the_heading_identifiers_that_reading_gfm_assigns(self) -> None:
+        document = MarkdownToADFConverter(PandocRunner()).convert("## An L2 Heading\n\nText\n")
+
+        self.assertEqual(
+            document["content"][0], {
+                "type": "heading",
+                "attrs": {
+                    "level": 2},
+                "content": [{
+                    "type": "text",
+                    "text": "An L2 Heading"}]})
+
     def test_rejects_raw_html_that_is_not_a_table(self) -> None:
         pandoc = RecordingPandoc(pandoc_document([{"t": "RawBlock", "c": ["html", "<div>text</div>"]}]))
 
@@ -359,23 +371,67 @@ class TestMarkdownToADFConverter(unittest.TestCase):
 
         self.assertEqual(document, source)
 
-    def test_rejects_an_image_beside_other_paragraph_content(self) -> None:
-        pandoc = RecordingPandoc(
+    def _mixed_paragraph(self, url):
+        return RecordingPandoc(
             pandoc_document(
                 [
                     {
-                        "t":
-                        "Para",
-                        "c": [
-                            {
-                                "t": "Str",
-                                "c": "text"}, {
-                                    "t": "Space"}, {
-                                        "t": "Image",
-                                        "c": [["", [], []], [], ["_attachments/diagram.png", ""]]}]}]))
+                        "t": "Para",
+                        "c": [{
+                            "t": "Str",
+                            "c": "text"}, {
+                                "t": "Space"}, {
+                                    "t": "Image",
+                                    "c": [["", [], []], [], [url, ""]]}]}]))
 
-        with self.assertRaisesRegex(ConversionError, "only content"):
+    def test_maps_an_image_beside_other_content_to_inline_media(self) -> None:
+        pandoc = self._mixed_paragraph("_attachments/diagram.png")
+
+        document = MarkdownToADFConverter(pandoc, MediaResolver([("diagram.png", "file-1")]), "contentId-123456").convert("source")
+
+        self.assertEqual(
+            document["content"][0]["content"][1], {
+                "type": "mediaInline",
+                "attrs": {
+                    "type": "file",
+                    "id": "file-1",
+                    "collection": "contentId-123456"}})
+
+    def test_rejects_an_inline_image_outside_the_attachments_directory(self) -> None:
+        pandoc = self._mixed_paragraph("https://example.test/logo.png")
+
+        with self.assertRaisesRegex(ConversionError, "managed attachment"):
             MarkdownToADFConverter(pandoc, MediaResolver([("diagram.png", "file-1")]), "contentId-123456").convert("source")
+
+    def test_round_trips_inline_media(self) -> None:
+        pandoc = PandocRunner()
+        media = MediaResolver([("diagram.png", "file-1")])
+        source = {
+            "type":
+            "doc",
+            "version":
+            1,
+            "content": [
+                {
+                    "type":
+                    "paragraph",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Before "}, {
+                                "type": "mediaInline",
+                                "attrs": {
+                                    "type": "file",
+                                    "id": "file-1",
+                                    "collection": "contentId-123456",
+                                    "alt": "diagram.png"}}, {
+                                        "type": "text",
+                                        "text": " after."}]}]}
+
+        markdown = ADFToMarkdownConverter(pandoc, media).convert(source)
+
+        self.assertEqual(markdown, "Before ![diagram.png](_attachments/diagram.png) after.\n")
+        self.assertEqual(MarkdownToADFConverter(pandoc, media, "contentId-123456").convert(markdown), source)
 
     def test_rejects_malformed_or_misplaced_opaque_markers(self) -> None:
         malformed = RecordingPandoc(pandoc_document([{"t": "CodeBlock", "c": [["", ["atlas_doc_format"], []], "not json"]}]))
