@@ -5,6 +5,7 @@
 
 import json
 import unittest
+from datetime import datetime
 
 from cflsync import ADFToMarkdownConverter, MediaResolver, PandocRunner
 
@@ -345,9 +346,123 @@ class TestADFToMarkdownConverter(unittest.TestCase):
                 "c": [["", ["atlas_doc_format"], []],
                       json.dumps(node, sort_keys=True, separators=(",", ":"))], })
 
+    def test_maps_an_emoji_to_its_unicode_text(self) -> None:
+        pandoc = RecordingPandoc()
+        emoji = {"type": "emoji", "attrs": {"shortName": ":smile:", "id": "1f604", "text": "\U0001F604"}}
+        paragraph = {"type": "paragraph", "content": [{"type": "text", "text": "Nice"}, emoji]}
+
+        ADFToMarkdownConverter(pandoc).convert({"type": "doc", "version": 1, "content": [paragraph]})
+
+        self.assertEqual(
+            pandoc.pandoc["blocks"][0], {
+                "t": "Para",
+                "c": [{
+                    "t": "Str",
+                    "c": "Nice"}, {
+                        "t": "Str",
+                        "c": "\U0001F604"}]})
+
+    def test_maps_a_date_to_a_raw_html_span(self) -> None:
+        pandoc = RecordingPandoc()
+        timestamp = "1775001600000"
+        expected = datetime.fromtimestamp(int(timestamp) / 1000).date().isoformat()
+        date = {"type": "date", "attrs": {"timestamp": timestamp}}
+
+        ADFToMarkdownConverter(pandoc).convert(
+            {
+                "type": "doc",
+                "version": 1,
+                "content": [{
+                    "type": "paragraph",
+                    "content": [date]}], })
+
+        self.assertEqual(
+            pandoc.pandoc["blocks"][0]["c"], [
+                {
+                    "t": "RawInline",
+                    "c": ["html", f'<span cflsync-type="date" cflsync-timestamp="{timestamp}">']}, {
+                        "t": "Str",
+                        "c": expected}, {
+                            "t": "RawInline",
+                            "c": ["html", "</span>"]}])
+
+    def test_maps_a_status_to_a_raw_html_span(self) -> None:
+        pandoc = RecordingPandoc()
+        status = {"type": "status", "attrs": {"text": "Done & ready", "color": "neutral"}}
+
+        ADFToMarkdownConverter(pandoc).convert(
+            {
+                "type": "doc",
+                "version": 1,
+                "content": [{
+                    "type": "paragraph",
+                    "content": [status]}], })
+
+        self.assertEqual(
+            pandoc.pandoc["blocks"][0]["c"], [
+                {
+                    "t": "RawInline",
+                    "c": ["html", '<span cflsync-type="status" style="background-color: gray">']}, {
+                        "t": "Str",
+                        "c": "Done"}, {
+                            "t": "Space"}, {
+                                "t": "Str",
+                                "c": "&"}, {
+                                    "t": "Space"}, {
+                                        "t": "Str",
+                                        "c": "ready"}, {
+                                            "t": "RawInline",
+                                            "c": ["html", "</span>"]}])
+
+    def test_maps_a_mention_to_a_raw_html_span(self) -> None:
+        pandoc = RecordingPandoc()
+        mention = {
+            "type": "mention",
+            "attrs": {
+                "id": "account-123",
+                "text": "@Example User",
+                "accessLevel": "SITE",
+                "userType": "DEFAULT"}}
+
+        ADFToMarkdownConverter(pandoc).convert(
+            {
+                "type": "doc",
+                "version": 1,
+                "content": [{
+                    "type": "paragraph",
+                    "content": [mention]}]})
+
+        self.assertEqual(
+            pandoc.pandoc["blocks"][0]["c"], [
+                {
+                    "t":
+                    "RawInline",
+                    "c": [
+                        "html",
+                        '<span cflsync-type="mention" cflsync-id="account-123" cflsync-access-level="SITE" cflsync-user-type="DEFAULT">'
+                    ]}, {
+                        "t": "Str",
+                        "c": "@Example"}, {
+                            "t": "Space"}, {
+                                "t": "Str",
+                                "c": "User"}, {
+                                    "t": "RawInline",
+                                    "c": ["html", "</span>"]}])
+
+    def test_retains_a_custom_emoji_without_unicode_text(self) -> None:
+        pandoc = RecordingPandoc()
+        emoji = {"type": "emoji", "attrs": {"shortName": ":atlassian:", "id": "atlassian-check"}}
+        paragraph = {"type": "paragraph", "content": [emoji]}
+
+        ADFToMarkdownConverter(pandoc).convert({"type": "doc", "version": 1, "content": [paragraph]})
+
+        block = pandoc.pandoc["blocks"][0]
+        self.assertEqual(block["c"][0], ["", ["atlas_doc_format"], []])
+        self.assertEqual(json.loads(block["c"][1]), paragraph)
+
     def test_retains_an_unsupported_inline_in_its_enclosing_block(self) -> None:
         pandoc = RecordingPandoc()
-        paragraph = {"type": "paragraph", "content": [{"type": "status", "attrs": {"text": "Done", "color": "green"}}]}
+        paragraph = {"type": "paragraph", "content": [{"type": "inlineCard", "attrs": {"url": "https://example.test"}}]}
 
         ADFToMarkdownConverter(pandoc).convert({"type": "doc", "version": 1, "content": [paragraph]})
 

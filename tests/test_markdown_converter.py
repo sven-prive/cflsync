@@ -5,6 +5,7 @@
 
 import json
 import unittest
+from datetime import datetime
 
 from cflsync import ADFToMarkdownConverter, ConversionError, MarkdownToADFConverter, MediaResolver, PandocRunner
 
@@ -324,6 +325,153 @@ class TestMarkdownToADFConverter(unittest.TestCase):
                 "content": [{
                     "type": "text",
                     "text": "An L2 Heading"}]})
+
+    def test_keeps_the_unicode_text_of_an_emoji_shortcode(self) -> None:
+        document = MarkdownToADFConverter(PandocRunner()).convert("Nice :smile: day\n")
+
+        self.assertEqual(
+            document["content"][0], {
+                "type": "paragraph",
+                "content": [{
+                    "type": "text",
+                    "text": "Nice \U0001F604 day"}]})
+
+    def test_maps_a_raw_html_status_through_pandoc(self) -> None:
+        document = MarkdownToADFConverter(PandocRunner()).convert(
+            'Before <span cflsync-type="status" style="background-color: green">Done &amp; ready</span> after\n')
+
+        self.assertEqual(
+            document["content"][0], {
+                "type":
+                "paragraph",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Before "}, {
+                            "type": "status",
+                            "attrs": {
+                                "text": "Done & ready",
+                                "color": "green"}}, {
+                                    "type": "text",
+                                    "text": " after"}]})
+
+    def test_round_trips_a_status(self) -> None:
+        source = {
+            "type":
+            "doc",
+            "version":
+            1,
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content":
+                    [{
+                        "type": "text",
+                        "text": "State: "}, {
+                            "type": "status",
+                            "attrs": {
+                                "text": "Done",
+                                "color": "green"}}]}]}
+        pandoc = PandocRunner()
+        markdown = ADFToMarkdownConverter(pandoc).convert(source)
+        document = MarkdownToADFConverter(pandoc).convert(markdown)
+
+        self.assertEqual(document, source)
+
+    def test_maps_a_raw_html_date_through_pandoc(self) -> None:
+        timestamp = "1775001600000"
+        date = datetime.fromtimestamp(int(timestamp) / 1000).date().isoformat()
+        document = MarkdownToADFConverter(
+            PandocRunner()).convert(f'<span cflsync-type="date" cflsync-timestamp="{timestamp}">{date}</span>\n')
+
+        self.assertEqual(
+            document["content"][0], {
+                "type": "paragraph",
+                "content": [{
+                    "type": "date",
+                    "attrs": {
+                        "timestamp": timestamp}}]})
+
+    def test_round_trips_a_date(self) -> None:
+        source = {
+            "type": "doc",
+            "version": 1,
+            "content": [{
+                "type": "paragraph",
+                "content": [{
+                    "type": "date",
+                    "attrs": {
+                        "timestamp": "1775001600000"}}]}]}
+        pandoc = PandocRunner()
+        markdown = ADFToMarkdownConverter(pandoc).convert(source)
+        document = MarkdownToADFConverter(pandoc).convert(markdown)
+
+        self.assertEqual(document, source)
+
+    def test_maps_a_raw_html_mention_through_pandoc(self) -> None:
+        document = MarkdownToADFConverter(PandocRunner()).convert(
+            '<span cflsync-type="mention" cflsync-id="account-123" cflsync-access-level="SITE" '
+            'cflsync-user-type="DEFAULT">@Example User</span>\n')
+
+        self.assertEqual(
+            document["content"][0], {
+                "type":
+                "paragraph",
+                "content": [
+                    {
+                        "type": "mention",
+                        "attrs": {
+                            "id": "account-123",
+                            "text": "@Example User",
+                            "accessLevel": "SITE",
+                            "userType": "DEFAULT"}}]})
+
+    def test_round_trips_a_mention(self) -> None:
+        source = {
+            "type":
+            "doc",
+            "version":
+            1,
+            "content":
+            [{
+                "type": "paragraph",
+                "content": [{
+                    "type": "mention",
+                    "attrs": {
+                        "id": "account-123",
+                        "text": "@Example User"}}]}]}
+        pandoc = PandocRunner()
+        markdown = ADFToMarkdownConverter(pandoc).convert(source)
+        document = MarkdownToADFConverter(pandoc).convert(markdown)
+
+        self.assertEqual(document, source)
+
+    def test_rejects_a_mention_without_an_account_id(self) -> None:
+        with self.assertRaisesRegex(ConversionError, "non-empty account ID"):
+            MarkdownToADFConverter(PandocRunner()).convert('<span cflsync-type="mention">@Example User</span>\n')
+
+    def test_rejects_a_date_with_text_that_does_not_match_its_timestamp(self) -> None:
+        with self.assertRaisesRegex(ConversionError, "must match"):
+            MarkdownToADFConverter(
+                PandocRunner()).convert('<span cflsync-type="date" cflsync-timestamp="1775001600000">2000-01-01</span>\n')
+
+    def test_rejects_a_status_with_an_unsupported_css_color(self) -> None:
+        with self.assertRaisesRegex(ConversionError, "unsupported attributes"):
+            MarkdownToADFConverter(
+                PandocRunner()).convert('<span cflsync-type="status" style="background-color: orange">Done</span>\n')
+
+    def test_rejects_a_span_that_is_not_an_emoji(self) -> None:
+        pandoc = RecordingPandoc(
+            pandoc_document([{
+                "t": "Para",
+                "c": [{
+                    "t": "Span",
+                    "c": [["", ["footnote"], []], [{
+                        "t": "Str",
+                        "c": "text"}]]}]}]))
+
+        with self.assertRaisesRegex(ConversionError, "emoji spans"):
+            MarkdownToADFConverter(pandoc).convert("source")
 
     def test_rejects_raw_html_that_is_not_a_table(self) -> None:
         pandoc = RecordingPandoc(pandoc_document([{"t": "RawBlock", "c": ["html", "<div>text</div>"]}]))

@@ -88,6 +88,10 @@ with their contained blocks and inline formatting converted recursively.
 | `strike` mark | `Strikeout` | `strike` mark |
 | `code` mark | `Code` | `code` mark |
 | `link` mark | `Link` | `link` mark |
+| `emoji` with `attrs.text` | `Str` holding that text | `text` |
+| `mention` with `attrs.id` | raw HTML `span` | `mention` |
+| `date` with a millisecond timestamp | raw HTML `span` | `date` |
+| `status` | raw HTML `span` | `status` |
 
 Supported text marks are emitted in a deterministic nesting order. Other marks
 are ignored while retaining their text and supported marks. Extra fields on
@@ -158,8 +162,34 @@ into an ADF `codeBlock`.
 
 ### Retention granularity
 
-ADF has inline nodes such as `status`, `mention`, `date`, `emoji`, and
-`inlineCard`. A GFM fence is a block construct and cannot
+An emoji becomes its Unicode text, so it reads as an ordinary character and
+pushes back as a `text` node rather than an `emoji` node; `shortName` and `id`
+are dropped. A custom emoji carries no `attrs.text` and is retained opaquely,
+keeping its identity. Reading GFM turns a typed `:shortcode:` into a Pandoc
+emoji span, which the reverse mapping accepts and reduces to the same Unicode
+text; other spans have no ADF form.
+
+A date becomes `<span cflsync-type="date" cflsync-timestamp="TIMESTAMP">LOCAL-DATE</span>`.
+`LOCAL-DATE` is derived from `TIMESTAMP` in the machine-local timezone. Reverse
+conversion parses the span through Pandoc and accepts only the exact attributes
+and a date text matching the local date for that timestamp. The original
+timestamp is then retained. A malformed timestamp retains its enclosing block
+opaquely.
+
+A status becomes `<span cflsync-type="status" style="background-color: COLOR">TEXT</span>`.
+ADF `neutral` uses CSS `gray`; every other supported ADF status color uses the
+same CSS name. Reverse conversion parses this raw HTML through Pandoc and
+accepts only one plain-text status span with those exact attributes. Renderers
+may sanitize the custom attribute or style, but the Markdown source remains
+reversible for cflsync.
+
+A mention becomes `<span cflsync-type="mention" cflsync-id="ACCOUNT-ID">TEXT</span>`.
+When present, `accessLevel` and `userType` become `cflsync-access-level` and
+`cflsync-user-type` attributes. `localId` is ignored. Reverse conversion parses
+the span through Pandoc and requires a non-empty account ID; it performs no
+name or email lookup. Plain Markdown has no mention-creation syntax.
+
+ADF has inline nodes such as `inlineCard`. A GFM fence is a block construct and cannot
 occupy a position inside a Pandoc `Para` or `Header`.
 
 Therefore, when an unsupported inline node occurs, the ADF reader
@@ -176,7 +206,7 @@ retains the nearest valid ancestor rather than changing the document shape.
 
 ### Initially opaque ADF features
 
-- `status`, `mention`, `date`, `emoji`, `inlineCard`, and unsupported media.
+- `inlineCard`, custom emoji, and unsupported media.
 - `panel`, `expand`, `nestedExpand`, task and decision lists, layouts, and
   `extensionFrame`.
 - `extension`, `bodiedExtension`, `multiBodiedExtension`, sync blocks, and

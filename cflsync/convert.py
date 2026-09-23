@@ -9,11 +9,24 @@ import json
 import re
 import subprocess
 from collections.abc import Mapping
+from datetime import datetime
+from html import escape
 
 from .errors import SyncError
 
 PANDOC_API_VERSION = (1, 23, 1, 2)
 IMAGE_SUFFIXES = (".apng", ".avif", ".bmp", ".gif", ".jpeg", ".jpg", ".png", ".svg", ".tif", ".tiff", ".webp")
+STATUS_COLORS = {"neutral": "gray", "purple": "purple", "blue": "blue", "red": "red", "yellow": "yellow", "green": "green"}
+
+
+def _local_date(timestamp):
+    if not isinstance(timestamp, str) or not timestamp.isdigit():
+        return None
+
+    try:
+        return datetime.fromtimestamp(int(timestamp) / 1000).date().isoformat()
+    except (OSError, OverflowError, ValueError):
+        return None
 
 
 class PandocError(SyncError):
@@ -359,10 +372,121 @@ class ADFToMarkdownConverter:
         if node_type == "mediaInline":
             return self._convert_media_inline(node)
 
+        if node_type == "emoji":
+            return self._convert_emoji(node)
+
+        if node_type == "mention":
+            return self._convert_mention(node)
+
+        if node_type == "date":
+            return self._convert_date(node)
+
+        if node_type == "status":
+            return self._convert_status(node)
+
         return None
 
     def _convert_hard_break(self, node):
         return [{"t": "LineBreak"}]
+
+    def _convert_emoji(self, node):
+        """Convert an emoji to its Unicode text; a custom emoji has none and stays opaque."""
+        attrs = node.get("attrs")
+        if not isinstance(attrs, Mapping):
+            return None
+
+        text = attrs.get("text")
+        if not isinstance(text, str) or not text:
+            return None
+
+        return self._convert_text({"type": "text", "text": text})
+
+    def _convert_mention(self, node):
+        """Render an ADF mention as a canonical raw HTML span."""
+        attrs = node.get("attrs")
+        if not isinstance(attrs, Mapping):
+            return None
+
+        account_id = attrs.get("id")
+        if not isinstance(account_id, str) or not account_id:
+            return None
+
+        attributes = [f'cflsync-type="mention"', f'cflsync-id="{escape(account_id, quote=True)}"', ]
+        for adf_name, html_name in (("accessLevel", "cflsync-access-level"), ("userType", "cflsync-user-type")):
+            value = attrs.get(adf_name)
+            if value is None:
+                continue
+
+            if not isinstance(value, str) or not value:
+                return None
+
+            attributes.append(f'{html_name}="{escape(value, quote=True)}"')
+
+        text = attrs.get("text")
+        if text is None:
+            inlines = []
+        else:
+            if not isinstance(text, str) or not text:
+                return None
+
+            inlines = self._convert_text({"type": "text", "text": text})
+            if inlines is None:
+                return None
+
+        return [
+            {
+                "t": "RawInline",
+                "c": ["html", f'<span {" ".join(attributes)}>']}, *inlines, {
+                    "t": "RawInline",
+                    "c": ["html", "</span>"]}, ]
+
+    def _convert_date(self, node):
+        """Convert an ADF timestamp to its local calendar date."""
+        attrs = node.get("attrs")
+        if not isinstance(attrs, Mapping):
+            return None
+
+        timestamp = attrs.get("timestamp")
+        date = _local_date(timestamp)
+        if date is None:
+            return None
+
+        inlines = self._convert_text({"type": "text", "text": date})
+        if inlines is None:
+            return None
+
+        return [
+            {
+                "t": "RawInline",
+                "c": ["html", f'<span cflsync-type="date" cflsync-timestamp="{timestamp}">']}, *inlines, {
+                    "t": "RawInline",
+                    "c": ["html", "</span>"]}, ]
+
+    def _convert_status(self, node):
+        """Render a status lozenge as a canonical raw HTML span."""
+        attrs = node.get("attrs")
+        if not isinstance(attrs, Mapping):
+            return None
+
+        text = attrs.get("text")
+        color = attrs.get("color")
+        if not isinstance(text, str) or not text or not isinstance(color, str):
+            return None
+
+        background = STATUS_COLORS.get(color)
+        if background is None:
+            return None
+
+        inlines = self._convert_text({"type": "text", "text": text})
+        if inlines is None:
+            return None
+
+        return [
+            {
+                "t": "RawInline",
+                "c": ["html", f'<span cflsync-type="status" style="background-color: {background}">']}, *inlines, {
+                    "t": "RawInline",
+                    "c": ["html", "</span>"]}, ]
 
     def _convert_media_inline(self, node):
         attrs = node.get("attrs")
@@ -784,6 +908,155 @@ class MarkdownToADFConverter:
 
         return {"type": "mediaGroup", "content": content}
 
+    def _convert_span(self, pandoc_inline, inlines, marks):
+        """Accept the emoji span that reading a `:shortcode:` produces, keeping its Unicode text."""
+        if not self._has_fields(pandoc_inline, {"t", "c"}):
+            raise ConversionError("Pandoc span has unsupported fields")
+
+        value = pandoc_inline.get("c")
+        if not isinstance(value, list) or len(value) != 2 or not isinstance(value[1], list):
+            raise ConversionError("Pandoc span has invalid content")
+
+        attributes = value[0]
+        if not isinstance(attributes, list) or len(attributes) != 3 or attributes[1] != ["emoji"]:
+            raise ConversionError("only emoji spans can be represented in ADF")
+
+        self._convert_inline_nodes_into(value[1], inlines, marks)
+
+    def _convert_raw_span(self, pandoc_inlines, index, inlines, marks):
+        if marks:
+            raise ConversionError("Pandoc raw inline has unsupported marks")
+
+        opening = self._raw_html(pandoc_inlines[index])
+        blocks = self._pandoc_runner.html_to_pandoc(opening).get("blocks")
+        if not isinstance(blocks, list) or len(blocks) != 1 or not isinstance(blocks[0], Mapping):
+            raise ConversionError("raw HTML must contain exactly one cflsync span")
+
+        block = blocks[0]
+        if block.get("t") != "Plain" or not self._has_fields(block, {"t", "c"}):
+            raise ConversionError("raw HTML must contain exactly one cflsync span")
+
+        content = block.get("c")
+        if not isinstance(content, list) or len(content) != 1 or not isinstance(content[0], Mapping):
+            raise ConversionError("raw HTML must contain exactly one cflsync span")
+
+        attributes = self._raw_span_attributes(content[0])
+        text_inlines = []
+        index += 1
+        while index < len(pandoc_inlines):
+            pandoc_inline = pandoc_inlines[index]
+            if not isinstance(pandoc_inline, Mapping):
+                raise ConversionError("Pandoc inline must be an object")
+
+            if pandoc_inline.get("t") == "RawInline":
+                if self._raw_html(pandoc_inline) != "</span>":
+                    raise ConversionError("raw HTML cflsync span has an invalid closing tag")
+
+                text = self._plain_text(text_inlines)
+                span_type = attributes.get("cflsync-type")
+                if span_type == "status":
+                    self._convert_status_span(attributes, text, inlines)
+                    return index + 1
+
+                if span_type == "date":
+                    self._convert_date_span(attributes, text, inlines)
+                    return index + 1
+
+                if span_type == "mention":
+                    self._convert_mention_span(attributes, text, inlines)
+                    return index + 1
+
+                raise ConversionError("raw HTML span has an unsupported cflsync type")
+
+            text_inlines.append(pandoc_inline)
+            index += 1
+
+        raise ConversionError("raw HTML cflsync span is not closed")
+
+    def _raw_html(self, pandoc_inline):
+        if not self._has_fields(pandoc_inline, {"t", "c"}):
+            raise ConversionError("Pandoc raw inline has unsupported fields")
+
+        value = pandoc_inline.get("c")
+        if not isinstance(value, list) or len(value) != 2 or value[0] != "html" or not isinstance(value[1], str):
+            raise ConversionError("raw content other than an HTML cflsync span cannot be represented in ADF")
+
+        return value[1]
+
+    def _raw_span_attributes(self, span):
+        if span.get("t") != "Span" or not self._has_fields(span, {"t", "c"}):
+            raise ConversionError("raw HTML must contain exactly one cflsync span")
+
+        value = span.get("c")
+        if not isinstance(value, list) or len(value) != 2 or not isinstance(value[1], list):
+            raise ConversionError("cflsync span has invalid content")
+
+        attributes = value[0]
+        if not isinstance(attributes, list) or len(attributes) != 3 or attributes[0] != "" or attributes[1] != []:
+            raise ConversionError("cflsync span has unsupported attributes")
+
+        key_values = attributes[2]
+        if not isinstance(key_values, list):
+            raise ConversionError("cflsync span has unsupported attributes")
+
+        values = {}
+        for key_value in key_values:
+            if not isinstance(key_value, list) or len(key_value) != 2:
+                raise ConversionError("cflsync span has unsupported attributes")
+
+            key, attribute_value = key_value
+            if not isinstance(key, str) or not isinstance(attribute_value, str) or key in values:
+                raise ConversionError("cflsync span has unsupported attributes")
+
+            values[key] = attribute_value
+
+        return values
+
+    def _convert_status_span(self, attributes, text, inlines):
+        if set(attributes) != {"cflsync-type", "style"} or not text:
+            raise ConversionError("status span has unsupported attributes")
+
+        background = attributes["style"]
+        colors = {css: adf for adf, css in STATUS_COLORS.items()}
+        if not isinstance(background, str) or not background.startswith("background-color: "):
+            raise ConversionError("status span has unsupported attributes")
+
+        color = colors.get(background.removeprefix("background-color: "))
+        if color is None:
+            raise ConversionError("status span has unsupported attributes")
+
+        inlines.append({"type": "status", "attrs": {"text": text, "color": color}})
+
+    def _convert_date_span(self, attributes, text, inlines):
+        if set(attributes) != {"cflsync-type", "cflsync-timestamp"}:
+            raise ConversionError("date span has unsupported attributes")
+
+        timestamp = attributes["cflsync-timestamp"]
+        expected_date = _local_date(timestamp)
+        if expected_date is None or text != expected_date:
+            raise ConversionError("date span text must match its local timestamp date")
+
+        inlines.append({"type": "date", "attrs": {"timestamp": timestamp}})
+
+    def _convert_mention_span(self, attributes, text, inlines):
+        allowed = {"cflsync-type", "cflsync-id", "cflsync-access-level", "cflsync-user-type", }
+        if not attributes.get("cflsync-id"):
+            raise ConversionError("mention span needs a non-empty account ID")
+
+        if not {"cflsync-type", "cflsync-id"} <= set(attributes) or not set(attributes) <= allowed:
+            raise ConversionError("mention span has unsupported attributes")
+
+        account_id = attributes["cflsync-id"]
+        mention_attrs = {"id": account_id}
+        if text:
+            mention_attrs["text"] = text
+
+        for html_name, adf_name in (("cflsync-access-level", "accessLevel"), ("cflsync-user-type", "userType")):
+            if html_name in attributes:
+                mention_attrs[adf_name] = attributes[html_name]
+
+        inlines.append({"type": "mention", "attrs": mention_attrs})
+
     def _convert_inline_image(self, pandoc_inline, inlines, marks):
         attrs = self._image_attrs(pandoc_inline)
         if attrs["type"] != "file":
@@ -879,11 +1152,18 @@ class MarkdownToADFConverter:
         return inlines
 
     def _convert_inline_nodes_into(self, pandoc_inlines, inlines, marks):
-        for pandoc_inline in pandoc_inlines:
+        index = 0
+        while index < len(pandoc_inlines):
+            pandoc_inline = pandoc_inlines[index]
             if not isinstance(pandoc_inline, Mapping):
                 raise ConversionError("Pandoc inline must be an object")
 
+            if pandoc_inline.get("t") == "RawInline":
+                index = self._convert_raw_span(pandoc_inlines, index, inlines, marks)
+                continue
+
             self._convert_inline(pandoc_inline, inlines, marks)
+            index += 1
 
     def _convert_inline(self, pandoc_inline, inlines, marks):
         node_type = pandoc_inline.get("t")
@@ -901,6 +1181,10 @@ class MarkdownToADFConverter:
 
         if node_type == "Image":
             self._convert_inline_image(pandoc_inline, inlines, marks)
+            return
+
+        if node_type == "Span":
+            self._convert_span(pandoc_inline, inlines, marks)
             return
 
         if node_type == "Strong":
