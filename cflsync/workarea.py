@@ -287,7 +287,8 @@ class PageState:
             with NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, prefix=f".{self.page.id}.", suffix=".tmp",
                                     delete=False) as temporary_file:
                 temporary_path = Path(temporary_file.name)
-                temporary_path.chmod(0o600)
+                if not _is_windows():
+                    temporary_path.chmod(0o600)
                 json.dump(self.to_json(), temporary_file, indent=2)
                 temporary_file.write("\n")
                 temporary_file.flush()
@@ -339,14 +340,16 @@ class Workarea:
             staging = Path(mkdtemp(prefix=".cflsync-init-", dir=p))
             cache_dir = staging / "cache"
             cache_dir.mkdir(mode=0o700)
-            cache_dir.chmod(0o700)
+            if not _is_windows():
+                cache_dir.chmod(0o700)
 
             profile_path = staging / "profile"
             with profile_path.open("w", encoding="utf-8") as profile_file:
                 profile_file.write(f"{profile}\n")
                 profile_file.flush()
                 os.fsync(profile_file.fileno())
-            profile_path.chmod(0o600)
+            if not _is_windows():
+                profile_path.chmod(0o600)
 
             os.replace(staging, cflsync_dir)
         except OSError as error:
@@ -407,6 +410,10 @@ class Workarea:
     def page_directory_target(self, state: PageState) -> Path:
         """Return a safe, unoccupied target path for a page directory."""
         directory = self._page_directory_path(state.page.directory)
+        for existing in self.root_dir.iterdir():
+            if existing.name.casefold() == state.page.directory.casefold() and existing != directory:
+                raise Workarea.Error(f"page directory '{state.page.directory}' already exists")
+
         cached_path = self.page_state_paths().get(state.page.id)
         cached_state = PageState.load(cached_path) if cached_path is not None else None
         if directory.exists() and (cached_state is None or cached_state.page.directory != state.page.directory):
@@ -419,7 +426,13 @@ class Workarea:
         if not isinstance(title, str) or not title:
             raise Workarea.Error("page title must be a non-empty string")
 
-        return quote(title, safe=" -_").replace(".", "%2E")
+        directory_name = quote(title, safe=" -_").replace(".", "%2E")
+        trailing_spaces = len(directory_name) - len(directory_name.rstrip(" "))
+        directory_name = directory_name.rstrip(" ")
+        if directory_name.upper() in _WINDOWS_RESERVED_NAMES:
+            directory_name = f"%{ord(directory_name[0]):02X}{directory_name[1:]}"
+
+        return f"{directory_name}{'%20' * trailing_spaces}"
 
     def stage_page(
         self,
@@ -453,7 +466,7 @@ class Workarea:
                 if path.exists() or path.is_symlink():
                     raise Workarea.Error(f"attachment '{filename}' would overwrite an unmanaged file")
 
-            (staging / "page.md").write_text(markdown, encoding="utf-8")
+            (staging / "page.md").write_text(markdown, encoding="utf-8", newline="\n")
             for filename, body in attachments.items():
                 self._attachment_path(attachment_directory, filename).write_bytes(body)
 
@@ -506,6 +519,10 @@ class Workarea:
         cleanup = False
         try:
             if source != target:
+                if _is_windows() and _current_directory_is_inside(source):
+                    raise Workarea.Error(
+                        "cannot rename a page directory while it is the current directory; run cflsync from outside it")
+
                 os.rename(source, target)
                 renamed = True
 
@@ -593,7 +610,9 @@ class Workarea:
         if directory.is_absolute() or directory.name != directory_name or directory_name in {".", ".."}:
             raise Workarea.Error("page directory must be a single relative name")
 
-        path = (self.root_dir / directory).resolve()
+        path = self.root_dir / directory
+        _check_windows_path_length(path)
+        path = path.resolve()
         try:
             path.relative_to(self.root_dir)
         except ValueError as error:
@@ -610,7 +629,10 @@ class Workarea:
         if "/" in filename or "\\" in filename or "\x00" in filename:
             raise Workarea.Error(f"attachment filename '{filename}' is unsafe")
 
-        return attachment_directory / filename
+        path = attachment_directory / filename
+        _check_windows_path_length(path)
+
+        return path
 
     @classmethod
     def find(cls, p: Path):
@@ -703,6 +725,29 @@ def _one_page_ref_id(page_ids: list[str], description: str) -> str:
         raise PageRefError(f"multiple pages match {description}: {', '.join(page_ids)}")
 
     return page_ids[0]
+
+
+_WINDOWS_RESERVED_NAMES = {
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3",
+    "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", }
+
+
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
+def _current_directory_is_inside(directory: Path) -> bool:
+    try:
+        Path.cwd().resolve().relative_to(directory.resolve())
+    except (OSError, ValueError):
+        return False
+
+    return True
+
+
+def _check_windows_path_length(path: Path) -> None:
+    if _is_windows() and len(str(path)) >= 260:
+        raise Workarea.Error(f"path is too long for Windows: '{path}'")
 
 
 # vim: set ts=4 sw=4 et tw=132:

@@ -132,7 +132,10 @@ class TestPagePush(unittest.TestCase):
     def test_uploads_local_page_changes_and_commits_state(self) -> None:
         with temporary_workarea() as workarea:
             self._pull(workarea)
-            self._edit(workarea)
+            markdown = "# Example page\n\nEdited\n"
+            page_path = workarea.root_dir / "Example page/page.md"
+            # Exercise an ordinary Windows editor save on every platform.
+            page_path.write_text(markdown, encoding="utf-8", newline="\r\n")
 
             _, status, transport = self._push(workarea, self._push_responses())
 
@@ -146,9 +149,9 @@ class TestPagePush(unittest.TestCase):
             # The title heading belongs to the page, not to its body.
             self.assertEqual(document["content"][0]["content"][0]["text"], "Edited")
             self.assertEqual(state.page.version, 18)
-            self.assertEqual(
-                state.page.content_hash,
-                hashlib.sha256((workarea.root_dir / "Example page/page.md").read_bytes()).hexdigest())
+            # Format 1 hashes canonical GFM, rather than the platform-specific
+            # bytes used to store the editable Markdown file.
+            self.assertEqual(state.page.content_hash, hashlib.sha256(markdown.encode("utf-8")).hexdigest())
 
     def test_uploads_changed_and_added_attachments(self) -> None:
         with temporary_workarea() as workarea:

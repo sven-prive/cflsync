@@ -156,12 +156,12 @@ class PagePullCommand:
         # Cached ownership also matters when a page directory is missing.
         for other_id, path in workarea.page_state_paths().items():
             other = PageState.load(path)
-            if other_id != page.id and other.page.directory == directory_name:
+            if other_id != page.id and other.page.directory.casefold() == directory_name.casefold():
                 raise SyncError(f"page directory '{directory_name}' is assigned to page '{other_id}'")
 
-        target = workarea.root_dir / directory_name
-        if target.exists() and target != source:
-            raise SyncError(f"page directory '{directory_name}' already exists")
+        for existing in workarea.root_dir.iterdir():
+            if existing.name.casefold() == directory_name.casefold() and existing != source:
+                raise SyncError(f"page directory '{directory_name}' already exists")
 
         try:
             document = json.loads(page.body)

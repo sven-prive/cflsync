@@ -89,11 +89,13 @@ class Config:
         temporary_path: Path | None = None
         try:
             self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            self.path.parent.chmod(0o700)
+            if os.name != "nt":
+                self.path.parent.chmod(0o700)
             with NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.path.parent, prefix=".config.", suffix=".tmp",
                                     delete=False) as temporary_file:
                 temporary_path = Path(temporary_file.name)
-                temporary_path.chmod(0o600)
+                if os.name != "nt":
+                    temporary_path.chmod(0o600)
                 json.dump(self.to_json(), temporary_file, indent=2)
                 temporary_file.write("\n")
                 temporary_file.flush()

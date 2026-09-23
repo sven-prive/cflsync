@@ -7,6 +7,7 @@
 """Credential configuration persistence tests."""
 
 import json
+import os
 from pathlib import Path
 import stat
 from tempfile import TemporaryDirectory
@@ -26,8 +27,9 @@ class TestConfigSave(unittest.TestCase):
             config.save()
 
             self.assertEqual(json.loads(path.read_text(encoding="utf-8")), config.to_json())
-            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
-            self.assertEqual(stat.S_IMODE(path.parent.stat().st_mode), 0o700)
+            if os.name != "nt":
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+                self.assertEqual(stat.S_IMODE(path.parent.stat().st_mode), 0o700)
 
     def test_failed_replacement_preserves_previous_configuration(self) -> None:
         with TemporaryDirectory(prefix="cflsync-config-") as temporary_dir:

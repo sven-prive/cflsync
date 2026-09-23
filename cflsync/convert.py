@@ -1610,7 +1610,7 @@ class PandocRunner:
     def _run(self, arguments: list[str], input_text: str) -> str:
         command = [self.binary, *arguments]
         try:
-            result = self._run_process(command, input=input_text, text=True, capture_output=True)
+            result = self._run_process(command, input=input_text, text=True, encoding="utf-8", capture_output=True)
         except FileNotFoundError as error:
             raise PandocError(f"Pandoc executable '{self.binary}' was not found") from error
         except OSError as error:

@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 from cflsync import APIClient, PageState, Profile, SyncError
 from cflsync.cli import PagePullCommand
-from tests.support import MockResponse, MockTransport, temporary_workarea
+from tests.support import MockResponse, MockTransport, example_page_state, temporary_workarea
 from tests.test_api_operations import attachment_fixture, page_fixture
 
 
@@ -81,7 +81,8 @@ class TestPagePull(unittest.TestCase):
             self.assertEqual((directory / "_attachments/diagram.png").read_bytes(), b"PNG")
             self.assertEqual(state.page.content_hash, hashlib.sha256(b"# Example page\n\nExample\n").hexdigest())
             self.assertEqual(state.attachments["diagram.png"].content_hash, hashlib.sha256(b"PNG").hexdigest())
-            self.assertEqual(workarea.cache_path("123456").stat().st_mode & 0o777, 0o600)
+            if os.name != "nt":
+                self.assertEqual(workarea.cache_path("123456").stat().st_mode & 0o777, 0o600)
             self.assertIn("/next", [request.path for request in transport.requests])
 
     def test_unchanged_and_formatting_only_changes_are_noops(self) -> None:
@@ -211,6 +212,18 @@ class TestPagePull(unittest.TestCase):
             before = self._snapshot(workarea)
             with self.assertRaisesRegex(SyncError, "unmanaged"):
                 self._pull(workarea, page=self._page(18), attachments=[attachment])
+
+            self.assertEqual(self._snapshot(workarea), before)
+
+    def test_rejects_title_directories_that_collide_without_case(self) -> None:
+        with temporary_workarea() as workarea:
+            self._pull(workarea)
+            other = example_page_state("654321", directory="example page")
+            other.save(workarea.cache_path(other.page.id))
+            before = self._snapshot(workarea)
+
+            with self.assertRaisesRegex(SyncError, "assigned to page '654321'"):
+                self._pull(workarea, page=self._page(18), attachments=[])
 
             self.assertEqual(self._snapshot(workarea), before)
 

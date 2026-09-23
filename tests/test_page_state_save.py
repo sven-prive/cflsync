@@ -7,6 +7,7 @@
 """Tests for atomic page-state persistence."""
 
 import stat
+import os
 import unittest
 from unittest.mock import patch
 
@@ -23,7 +24,8 @@ class TestPageStateSave(unittest.TestCase):
 
             path = workarea.cache_path(expected.page.id)
             self.assertEqual(PageState.load(workarea.cache_path(expected.page.id)), expected)
-            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            if os.name != "nt":
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
 
     def test_failed_replacement_preserves_the_previous_complete_state(self) -> None:
         with temporary_workarea() as workarea:

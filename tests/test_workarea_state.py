@@ -118,6 +118,15 @@ class TestWorkareaSafePaths(unittest.TestCase):
 
             self.assertEqual(sorted(workarea.root_dir.iterdir()), before)
 
+    def test_rejects_an_existing_title_directory_with_different_case(self) -> None:
+        with temporary_workarea() as workarea:
+            state = example_page_state(directory="Example page")
+            target = workarea.root_dir / "example page"
+            target.mkdir()
+
+            with self.assertRaisesRegex(Workarea.Error, "already exists"):
+                workarea.page_directory_target(state)
+
 
 class TestWorkareaMaterialization(unittest.TestCase):
 
@@ -126,7 +135,43 @@ class TestWorkareaMaterialization(unittest.TestCase):
             self.assertEqual(workarea.page_directory_name("Example page"), "Example page")
             self.assertEqual(workarea.page_directory_name("Example/page"), "Example%2Fpage")
             self.assertEqual(workarea.page_directory_name("."), "%2E")
+            self.assertEqual(workarea.page_directory_name("CON"), "%43ON")
+            self.assertEqual(workarea.page_directory_name("lpt9"), "%6Cpt9")
+            self.assertEqual(workarea.page_directory_name("Example "), "Example%20")
             self.assertEqual(workarea.page_directory_name("Example/page"), workarea.page_directory_name("Example/page"))
+
+    def test_rejects_paths_that_exceed_the_windows_limit(self) -> None:
+        with temporary_workarea() as workarea:
+            directory_name = "x" * 260
+            with patch("cflsync.workarea._is_windows", return_value=True):
+                with self.assertRaisesRegex(Workarea.Error, "too long for Windows"):
+                    workarea.stage_page(directory_name, "# Example\n", {})
+
+    def test_writes_page_markdown_with_lf_newlines(self) -> None:
+        with temporary_workarea() as workarea:
+            staging = workarea.stage_page("Example page", "# Example\n\nText\n", {})
+
+            self.assertEqual((staging / "page.md").read_bytes(), b"# Example\n\nText\n")
+
+    def test_windows_rejects_renaming_the_current_page_directory(self) -> None:
+        with temporary_workarea() as workarea:
+            source = workarea.root_dir / "Example page"
+            source.mkdir()
+            (source / "page.md").write_text("previous\n", encoding="utf-8")
+            (source / "_attachments").mkdir()
+            staging = workarea.stage_page("Renamed", "replacement\n", {})
+            original_cwd = os.getcwd()
+            os.chdir(source)
+            try:
+                with patch("cflsync.workarea._is_windows", return_value=True):
+                    with self.assertRaisesRegex(Workarea.Error, "run cflsync from outside"):
+                        with workarea.replace_page(staging, "Renamed", source):
+                            pass
+            finally:
+                os.chdir(original_cwd)
+
+            self.assertTrue(source.is_dir())
+            self.assertEqual((source / "page.md").read_text(encoding="utf-8"), "previous\n")
 
     def test_stages_and_installs_one_complete_page(self) -> None:
         with temporary_workarea() as workarea:
@@ -211,12 +256,25 @@ class TestWorkareaMaterialization(unittest.TestCase):
                     original_cwd = os.getcwd()
                     os.chdir(source)
                     try:
-                        with workarea.replace_page(staging, name, source, ["old.txt", "new.txt"]):
-                            self.assertEqual(os.getcwd(), str(workarea.root_dir / name))
+                        if os.name == "nt" and name != source.name:
+                            with self.assertRaisesRegex(Workarea.Error, "run cflsync from outside"):
+                                with workarea.replace_page(staging, name, source, ["old.txt", "new.txt"]):
+                                    pass
 
-                        self.assertEqual(os.getcwd(), str(workarea.root_dir / name))
+                            self.assertEqual(os.getcwd(), str(source))
+                        else:
+                            with workarea.replace_page(staging, name, source, ["old.txt", "new.txt"]):
+                                self.assertEqual(os.getcwd(), str(workarea.root_dir / name))
+
+                            self.assertEqual(os.getcwd(), str(workarea.root_dir / name))
                     finally:
                         os.chdir(original_cwd)
+
+                    if os.name == "nt" and name != source.name:
+                        self.assertEqual((source / "page.md").read_text(), "previous\n")
+                        self.assertTrue((source / "_attachments/old.txt").exists())
+                        self.assertFalse((source / "_attachments/new.txt").exists())
+                        continue
 
                     target = workarea.root_dir / name
                     self.assertEqual(target.stat().st_ino, source_inode)

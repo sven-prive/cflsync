@@ -71,6 +71,10 @@ remote title. It is presentation only: the cache's page ID and directory name
 are authoritative. A pull renames a changed title only if its target is unused;
 otherwise it stops without overwriting data.
 
+On Windows, a title change cannot rename the page directory when cflsync is
+running from inside that directory. The command stops before mutation and asks
+the user to run it from the workarea or another directory before retrying.
+
 Attachments use relative Markdown URLs:
 
 ```markdown
@@ -93,13 +97,16 @@ managed set must not be deleted.
 
 ## Per-page cache entry
 
-Each synchronized page has an atomically written `0600` cache entry at
-`.cflsync/cache/<page-id>.json`; `.cflsync` and `cache` use mode `0700`. Cache
-entries contain no credentials. Stable page IDs are cache keys, avoiding
-title-based collisions. Credential configuration is also atomically written
-with mode `0600` under a mode-`0700` configuration directory. Failed or
-interrupted initialization, staging, and private-file writes remove their
-temporary files or directories. Format 1 is:
+On Unix, each synchronized page has an atomically written `0600` cache entry
+at `.cflsync/cache/<page-id>.json`; `.cflsync` and `cache` use mode `0700`.
+Cache entries contain no credentials. Credential configuration is also
+atomically written with mode `0600` under a mode-`0700` configuration
+directory. On Windows, POSIX modes do not apply. Credentials remain below the
+per-user configuration directory selected by `platformdirs`, relying on its
+default user ACL; cflsync does not alter Windows ACLs. Stable page IDs are
+cache keys, avoiding title-based collisions. Failed or interrupted
+initialization, staging, and private-file writes remove their temporary files
+or directories. Format 1 is:
 
 ```json
 {

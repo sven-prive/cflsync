@@ -22,9 +22,11 @@ class FakePandoc:
     def __init__(self, api_version: tuple[int, ...] = PandocRunner.API_VERSION) -> None:
         self.api_version = api_version
         self.calls: list[list[str]] = []
+        self.encodings: list[str] = []
 
-    def __call__(self, command, input, text, capture_output) -> CompletedProcess:
+    def __call__(self, command, input, text, encoding, capture_output) -> CompletedProcess:
         self.calls.append(command)
+        self.encodings.append(encoding)
         if command[1:] == ["--version"]:
             return CompletedProcess(command, 0, "pandoc 3.10\n", "")
         if command[1:] == ["--from=gfm", "--to=json"]:
@@ -43,6 +45,7 @@ class TestPandocDiscovery(unittest.TestCase):
 
         self.assertEqual(runner.version, "3.10")
         self.assertEqual(pandoc.calls[:2], [["pandoc", "--version"], ["pandoc", "--from=gfm", "--to=json"]])
+        self.assertEqual(pandoc.encodings[:2], ["utf-8", "utf-8"])
         self.assertTrue(all(isinstance(command, list) for command in pandoc.calls))
 
     def test_rejects_a_missing_binary(self) -> None:
@@ -85,10 +88,10 @@ class TestPandocConversion(unittest.TestCase):
 
         class FailingPandoc(FakePandoc):
 
-            def __call__(self, command, input, text, capture_output) -> CompletedProcess:
+            def __call__(self, command, input, text, encoding, capture_output) -> CompletedProcess:
                 if command[1:] == ["--from=gfm", "--to=json"] and input:
                     return CompletedProcess(command, 1, "", "invalid GFM")
-                return super().__call__(command, input, text, capture_output)
+                return super().__call__(command, input, text, encoding, capture_output)
 
         runner = PandocRunner(run=FailingPandoc())
 
