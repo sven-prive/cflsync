@@ -6,13 +6,19 @@
 from __future__ import annotations
 
 import sys
+import hashlib
+import json
+import shutil
 from argparse import ArgumentParser
 from getpass import getpass
 from pathlib import Path
 
 from . import Workarea
+from .api import APIClient
 from .config import Config, Profile
+from .convert import ADFToMarkdownConverter, PandocRunner
 from .errors import SyncError
+from .workarea import AttachmentMetadata, MediaResolver, PageMetadata, PageRef, PageState
 
 
 class InitCommand:
@@ -86,7 +92,105 @@ class PagePullCommand:
         return self.run(args.page_ref)
 
     def run(self, page_ref: str) -> int:
-        raise SyncError("page pull is not implemented")
+        try:
+            workarea = Workarea.find(Path.cwd())
+            config = Config.find()
+            profile = config.profiles.get(workarea.profile)
+            if profile is None:
+                raise SyncError(f"credential profile '{workarea.profile}' does not exist")
+
+            api = APIClient(profile.hostname, profile.username, profile.apitoken)
+            reference = PageRef.resolve(page_ref, workarea, api)
+            page = api.get_page(reference.page_id)
+            self._pull(workarea, page, PandocRunner())
+        except (OSError, UnicodeError) as error:
+            raise SyncError(f"cannot pull page: {error}") from error
+
+        return 0
+
+    def _pull(self, workarea, page, pandoc):
+        attachments = page.attachments()
+        MediaResolver((attachment.filename, attachment.id) for attachment in attachments)
+        cache_path = workarea.cache_path(page.id)
+        previous = None
+        source = None
+        if cache_path.exists():
+            previous = PageState.load(cache_path)
+            source = workarea.page_directory(previous)
+            if self._local_changed(source, previous, pandoc):
+                raise SyncError(f"page '{page.id}' has local changes; pull conflicts")
+
+            if not self._remote_changed(page, attachments, previous):
+                return
+
+        directory_name = workarea.page_directory_name(page.title)
+        # Cached ownership also matters when a page directory is missing.
+        for other_id, path in workarea.page_state_paths().items():
+            other = PageState.load(path)
+            if other_id != page.id and other.page.directory == directory_name:
+                raise SyncError(f"page directory '{directory_name}' is assigned to page '{other_id}'")
+
+        target = workarea.root_dir / directory_name
+        if target.exists() and target != source:
+            raise SyncError(f"page directory '{directory_name}' already exists")
+
+        try:
+            document = json.loads(page.body)
+        except (TypeError, json.JSONDecodeError) as error:
+            raise SyncError(f"page '{page.id}' has invalid ADF JSON") from error
+
+        if not isinstance(document, dict):
+            raise SyncError(f"page '{page.id}' ADF must be an object")
+
+        markdown = ADFToMarkdownConverter(pandoc).convert(document)
+        bodies = {}
+        metadata = {}
+        for attachment in attachments:
+            body = attachment.download()
+            bodies[attachment.filename] = body
+            metadata[attachment.filename] = AttachmentMetadata(attachment.id, attachment.version, hashlib.sha256(body).hexdigest())
+
+        state = PageState(
+            PageMetadata(page.id, page.title, directory_name, page.version, self._page_hash(markdown, pandoc)), metadata)
+        managed = ()
+        if previous is not None:
+            managed = previous.attachments
+
+        staging = workarea.stage_page(directory_name, markdown, bodies, source=source, managed_attachments=managed)
+        try:
+            with workarea.replace_page(staging, directory_name, source):
+                state.save(cache_path)
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging)
+
+    def _page_hash(self, markdown, pandoc):
+        document = pandoc.gfm_to_pandoc(markdown)
+        canonical = pandoc.pandoc_to_gfm(document)
+
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    def _local_changed(self, directory, state, pandoc):
+        markdown = (directory / "page.md").read_text(encoding="utf-8")
+        if self._page_hash(markdown, pandoc) != state.page.content_hash:
+            return True
+
+        MediaResolver((name, attachment.id) for name, attachment in state.attachments.items())
+        for name, attachment in state.attachments.items():
+            path = directory / "_attachments" / name
+            if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != attachment.content_hash:
+                return True
+
+        return False
+
+    def _remote_changed(self, page, attachments, state):
+        if page.version != state.page.version or page.title != state.page.title:
+            return True
+
+        remote = {attachment.filename: (attachment.id, attachment.version) for attachment in attachments}
+        cached = {name: (attachment.id, attachment.version) for name, attachment in state.attachments.items()}
+
+        return remote != cached
 
 
 class PagePushCommand:

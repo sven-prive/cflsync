@@ -10,7 +10,8 @@ import json
 import os
 import re
 import shutil
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from pathlib import Path
 from tempfile import NamedTemporaryFile, mkdtemp
 from typing import Self
@@ -406,7 +407,13 @@ class Workarea:
 
         return quote(title, safe=" -_").replace(".", "%2E")
 
-    def stage_page(self, directory_name: str, markdown: str, attachments: Mapping[str, bytes]) -> Path:
+    def stage_page(
+        self,
+        directory_name: str,
+        markdown: str,
+        attachments: Mapping[str, bytes],
+        source: Path | None = None,
+        managed_attachments: Iterable[str] = ()) -> Path:
         """Write one complete page representation to a hidden staging directory."""
         self._page_directory_path(directory_name)
         if not isinstance(markdown, str):
@@ -414,16 +421,71 @@ class Workarea:
 
         staging = Path(mkdtemp(prefix=".cflsync-stage-", dir=self.root_dir))
         try:
-            (staging / "page.md").write_text(markdown, encoding="utf-8")
+            if source is not None:
+                shutil.copytree(source, staging, dirs_exist_ok=True, symlinks=True)
+
+            page_path = staging / "page.md"
+            page_path.unlink(missing_ok=True)
             attachment_directory = staging / "_attachments"
-            attachment_directory.mkdir()
+            if attachment_directory.is_symlink():
+                raise Workarea.Error("attachment directory must not be a symbolic link")
+
+            attachment_directory.mkdir(exist_ok=True)
+            for filename in managed_attachments:
+                self._attachment_path(attachment_directory, filename).unlink(missing_ok=True)
+
+            for filename in attachments:
+                path = self._attachment_path(attachment_directory, filename)
+                if path.exists() or path.is_symlink():
+                    raise Workarea.Error(f"attachment '{filename}' would overwrite an unmanaged file")
+
+            (staging / "page.md").write_text(markdown, encoding="utf-8")
             for filename, body in attachments.items():
                 self._attachment_path(attachment_directory, filename).write_bytes(body)
 
             return staging
+        except SyncError:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
         except (OSError, TypeError) as error:
             shutil.rmtree(staging, ignore_errors=True)
             raise Workarea.Error(f"cannot stage page directory: {error}") from error
+
+    @contextmanager
+    def replace_page(self, staging: Path, directory_name: str, source: Path | None = None) -> Iterator[Path]:
+        """Install staged files, retaining the old directory until the caller commits state."""
+        target = self._page_directory_path(directory_name)
+        if source is not None:
+            if source.is_symlink() or source != self._page_directory_path(source.name):
+                raise Workarea.Error("previous page directory must be directly below the workarea root")
+
+        if target.exists() and target != source:
+            raise Workarea.Error(f"page directory '{directory_name}' already exists")
+
+        backup = None
+        installed = False
+        committed = False
+        try:
+            if source is not None:
+                backup = Path(mkdtemp(prefix=".cflsync-backup-", dir=self.root_dir))
+                backup.rmdir()
+                os.replace(source, backup)
+
+            self.install_page(staging, directory_name)
+            installed = True
+            yield target
+            committed = True
+        except BaseException:
+            if installed:
+                os.replace(target, staging)
+
+            if source is not None and backup is not None and backup.exists():
+                os.replace(backup, source)
+
+            raise
+        finally:
+            if committed and backup is not None and backup.exists():
+                shutil.rmtree(backup, ignore_errors=True)
 
     def install_page(self, staging: Path, directory_name: str, replace: bool = False) -> Path:
         """Atomically make a complete staged page directory visible."""
