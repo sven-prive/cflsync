@@ -107,8 +107,15 @@ class RemoteAttachment:
     """The attachment fields used by cflsync synchronization operations."""
 
     def __init__(
-            self, client: "APIClient", id: str, filename: str, version: int, media_type: str | None, download_path: str | None,
-            page_id: str | None) -> None:
+            self,
+            client: "APIClient",
+            id: str,
+            filename: str,
+            version: int,
+            media_type: str | None,
+            download_path: str | None,
+            page_id: str | None,
+            file_id: str | None = None) -> None:
         self._client = client
         self.id = id
         self.filename = filename
@@ -116,6 +123,7 @@ class RemoteAttachment:
         self.media_type = media_type
         self.download_path = download_path
         self.page_id = page_id
+        self.file_id = file_id
 
     @classmethod
     def from_json(cls, client: "APIClient", value: Mapping[str, object], page_id: str | None = None) -> "RemoteAttachment":
@@ -126,8 +134,9 @@ class RemoteAttachment:
         media_type = _optional_string(value, "mediaType")
         download_path = _attachment_download_path(value)
         page_id = page_id or _optional_string(value, "pageId")
+        file_id = _optional_string(value, "fileId")
 
-        return cls(client, id, filename, version, media_type, download_path, page_id)
+        return cls(client, id, filename, version, media_type, download_path, page_id, file_id)
 
     def download(self) -> bytes:
         """Download this attachment's bytes through its server-provided link.

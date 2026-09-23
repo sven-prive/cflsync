@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from .errors import SyncError
 
 PANDOC_API_VERSION = (1, 23, 1, 2)
+IMAGE_SUFFIXES = (".apng", ".avif", ".bmp", ".gif", ".jpeg", ".jpg", ".png", ".svg", ".tif", ".tiff", ".webp")
 
 
 class PandocError(SyncError):
@@ -26,8 +27,9 @@ class ConversionError(SyncError):
 class ADFToMarkdownConverter:
     """Convert supported ADF content to GFM, retaining unsupported structures."""
 
-    def __init__(self, pandoc) -> None:
+    def __init__(self, pandoc, media=None) -> None:
         self._pandoc_runner = pandoc
+        self._media = media
 
     def convert(self, document: Mapping[str, object], title: str | None = None) -> str:
         """Convert an ADF body to GFM, optionally prefixed by its page title."""
@@ -83,6 +85,12 @@ class ADFToMarkdownConverter:
 
         if node_type == "rule":
             return self._convert_rule(node)
+
+        if node_type == "mediaSingle":
+            return self._convert_media_single(node)
+
+        if node_type == "mediaGroup":
+            return self._convert_media_group(node)
 
         return self._convert_opaque(node)
 
@@ -155,6 +163,78 @@ class ADFToMarkdownConverter:
 
     def _convert_rule(self, node):
         return {"t": "HorizontalRule"}
+
+    def _convert_media_single(self, node):
+        content = self._convert_block_content(node)
+        if content is None or len(content) != 1:
+            return self._convert_opaque(node)
+
+        inline = self._convert_media(content[0])
+        if inline is None:
+            return self._convert_opaque(node)
+
+        return {"t": "Para", "c": [inline]}
+
+    def _convert_media_group(self, node):
+        content = self._convert_block_content(node)
+        if not content:
+            return self._convert_opaque(node)
+
+        media = []
+        for child in content:
+            inline = self._convert_media(child)
+            if inline is None:
+                return self._convert_opaque(node)
+
+            media.append(inline)
+
+        inlines = media[:1]
+        for inline in media[1:]:
+            inlines.append({"t": "Space"})
+            inlines.append(inline)
+
+        return {"t": "Para", "c": inlines}
+
+    def _convert_media(self, node):
+        if not isinstance(node, Mapping) or node.get("type") != "media":
+            return None
+
+        attrs = node.get("attrs")
+        if not isinstance(attrs, Mapping):
+            return None
+
+        if attrs.get("type") == "external":
+            url = attrs.get("url")
+            if not isinstance(url, str) or not url:
+                return None
+
+            return self._convert_media_target(url, attrs.get("alt"))
+
+        path = self._media_path(attrs)
+        if path is None:
+            return None
+
+        return self._convert_media_target(path, attrs.get("alt"))
+
+    def _media_path(self, attrs):
+        file_id = attrs.get("id")
+        if self._media is None or not isinstance(file_id, str) or not file_id:
+            return None
+
+        try:
+            return self._media.path_for(file_id)
+        except SyncError:
+            return None
+
+    def _convert_media_target(self, url, alt):
+        text = alt if isinstance(alt, str) and alt else url.rsplit("/", 1)[-1]
+        inlines = self._convert_text({"type": "text", "text": text})
+        if inlines is None:
+            return None
+
+        node_type = "Image" if _is_image_target(url) else "Link"
+
+        return {"t": node_type, "c": [["", [], []], inlines, [url, ""]]}
 
     def _convert_list_items(self, node):
         content = node.get("content")
@@ -301,8 +381,10 @@ class ADFToMarkdownConverter:
 class MarkdownToADFConverter:
     """Convert the supported GFM subset to ADF."""
 
-    def __init__(self, pandoc) -> None:
+    def __init__(self, pandoc, media=None, collection: str | None = None) -> None:
         self._pandoc_runner = pandoc
+        self._media = media
+        self._collection = collection
 
     def convert(self, markdown: str) -> Mapping[str, object]:
         """Convert one GFM document to ADF."""
@@ -367,9 +449,17 @@ class MarkdownToADFConverter:
         raise ConversionError(f"unsupported Pandoc block '{node_type}'")
 
     def _convert_paragraph(self, pandoc_block):
+        media = self._convert_media_block(pandoc_block)
+        if media is not None:
+            return media
+
         return {"type": "paragraph", "content": self._convert_inlines(pandoc_block)}
 
     def _convert_plain(self, pandoc_block):
+        media = self._convert_media_block(pandoc_block)
+        if media is not None:
+            return media
+
         return {"type": "paragraph", "content": self._convert_inlines(pandoc_block)}
 
     def _convert_heading(self, pandoc_block):
@@ -456,6 +546,78 @@ class MarkdownToADFConverter:
             raise ConversionError("Pandoc horizontal rule has unsupported fields")
 
         return {"type": "rule"}
+
+    def _convert_media_block(self, pandoc_block):
+        value = pandoc_block.get("c")
+        if not isinstance(value, list):
+            return None
+
+        images = [inline for inline in value if isinstance(inline, Mapping) and inline.get("t") == "Image"]
+        if not images:
+            return None
+
+        if any(not isinstance(inline, Mapping) or inline.get("t") not in {"Image", "Space"} for inline in value):
+            raise ConversionError("Pandoc image must be the only content of its paragraph")
+
+        content = [self._convert_image(image) for image in images]
+        if len(content) == 1:
+            return {"type": "mediaSingle", "attrs": {"layout": "center"}, "content": content}
+
+        return {"type": "mediaGroup", "content": content}
+
+    def _convert_image(self, pandoc_inline):
+        if not self._has_fields(pandoc_inline, {"t", "c"}):
+            raise ConversionError("Pandoc image has unsupported fields")
+
+        value = pandoc_inline.get("c")
+        if not isinstance(value, list) or len(value) != 3:
+            raise ConversionError("Pandoc image has invalid content")
+
+        attributes, description, target = value
+        if attributes != ["", [], []] or not isinstance(description, list) or not isinstance(target, list) or len(target) != 2:
+            raise ConversionError("Pandoc image has unsupported attributes")
+
+        url, title = target
+        if not isinstance(url, str) or not url or not isinstance(title, str):
+            raise ConversionError("Pandoc image has invalid target")
+
+        if url.startswith("_attachments/"):
+            attrs = {"type": "file", "id": self._media_id(url), "collection": self._media_collection()}
+        else:
+            attrs = {"type": "external", "url": url}
+
+        alt = self._image_alt(description)
+        if alt:
+            attrs["alt"] = alt
+
+        return {"type": "media", "attrs": attrs}
+
+    def _media_id(self, url):
+        if self._media is None:
+            raise ConversionError(f"attachment path '{url}' needs an attachment manifest")
+
+        return self._media.id_for(url)
+
+    def _media_collection(self):
+        if self._collection is None:
+            raise ConversionError("attachment references need a media collection")
+
+        return self._collection
+
+    def _image_alt(self, description):
+        text = []
+        for inline in description:
+            if not isinstance(inline, Mapping):
+                raise ConversionError("Pandoc image description must contain inlines")
+
+            if inline.get("t") == "Space":
+                text.append(" ")
+            elif inline.get("t") == "Str" and isinstance(inline.get("c"), str):
+                text.append(inline["c"])
+            else:
+                raise ConversionError("Pandoc image description must be plain text")
+
+        return "".join(text)
 
     def _convert_list_items(self, items):
         result = []
@@ -715,6 +877,13 @@ class PandocRunner:
             raise PandocError("Pandoc produced non-text output")
 
         return result.stdout
+
+
+def _is_image_target(url):
+    """Report whether *url* names a file GFM can render as an image."""
+    path = url.split("?", 1)[0].split("#", 1)[0].lower()
+
+    return path.endswith(IMAGE_SUFFIXES)
 
 
 # vim: set ts=4 sw=4 et tw=132:

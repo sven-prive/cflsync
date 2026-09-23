@@ -102,12 +102,15 @@ cells, spans, and nested blocks require retention of the whole table. Decorative
 attributes alone should not prevent conversion. The reverse mapping will emit
 `table`, `tableRow`, and `tableHeader` or `tableCell` nodes for the supported subset.
 
-`media`, `mediaInline`, `mediaSingle`, and `mediaGroup` map to Pandoc `Image`
-or `Link` only when the page attachment manifest resolves the ADF media
-identifier to a managed local `_attachments/<filename>` path. The reverse
-mapping uses the manifest to reconstruct the corresponding ADF media node.
-Unresolved media, remote media, and media attributes not represented by a
-Pandoc image or link are opaque.
+`mediaSingle` and `mediaGroup` map to a Pandoc paragraph of `Image` or `Link`
+inlines when the page attachment manifest resolves the ADF media identifier to
+a managed local `_attachments/<filename>` path. `Image` is used for filenames
+with an image suffix and `Link` otherwise, since the ADF media node carries no
+media type. External media uses its own URL and needs no manifest. The reverse
+mapping uses the manifest to reconstruct the corresponding ADF media node; a
+paragraph mixing an image with other content has no ADF equivalent and is
+rejected. Media that the manifest cannot resolve stays opaque, as does
+`mediaInline`. Layout, width, and height attributes are dropped.
 
 ## Opaque ADF retention
 
@@ -171,14 +174,16 @@ The ADF/Pandoc converter does not download or upload attachment bytes. It
 uses a `MediaResolver` supplied by the synchronization layer:
 
 ```text
-ADF media identifier ⇄ managed attachment ID ⇄ _attachments/filename
+ADF media identifier ⇄ attachment file ID ⇄ _attachments/filename
 ```
 
-The synchronization layer maintains that relationship in the page cache and
-performs the attachment API operations. A conversion fails instead of emitting
-a guessed local path when the relationship is absent or ambiguous.
-`MediaResolver` receives ordered `(filename, attachment ID)` manifest entries
-and exposes the two pure lookups `path_for()` and `id_for()`.
+ADF media nodes reference an attachment by its file ID, which the Confluence
+attachment manifest reports as `fileId`. That value differs from the attachment
+ID used by the attachment API operations, so the media manifest is keyed on the
+file ID. The synchronization layer performs the attachment API operations and
+supplies the manifest; it never emits a guessed local path. `MediaResolver`
+receives ordered `(filename, file ID)` manifest entries and exposes the two pure
+lookups `path_for()` and `id_for()`.
 
 ## Required tests
 

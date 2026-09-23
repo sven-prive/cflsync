@@ -113,6 +113,9 @@ class PagePullCommand:
     def _pull(self, workarea, page, pandoc, force=False):
         attachments = page.attachments()
         MediaResolver((attachment.filename, attachment.id) for attachment in attachments)
+        # ADF media nodes reference attachments by file ID, not by attachment ID.
+        media = MediaResolver(
+            (attachment.filename, attachment.file_id) for attachment in attachments if attachment.file_id is not None)
         cache_path = workarea.cache_path(page.id)
         previous = None
         source = None
@@ -148,7 +151,7 @@ class PagePullCommand:
         if not isinstance(document, dict):
             raise SyncError(f"page '{page.id}' ADF must be an object")
 
-        markdown = ADFToMarkdownConverter(pandoc).convert(document, title=page.title)
+        markdown = ADFToMarkdownConverter(pandoc, media).convert(document, title=page.title)
         bodies = {}
         metadata = {}
         for attachment in attachments:

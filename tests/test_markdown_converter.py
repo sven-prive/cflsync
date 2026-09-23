@@ -6,7 +6,7 @@
 import json
 import unittest
 
-from cflsync import ADFToMarkdownConverter, ConversionError, MarkdownToADFConverter, PandocRunner
+from cflsync import ADFToMarkdownConverter, ConversionError, MarkdownToADFConverter, MediaResolver, PandocRunner
 
 
 class RecordingPandoc:
@@ -275,6 +275,64 @@ class TestMarkdownToADFConverter(unittest.TestCase):
         document = MarkdownToADFConverter(pandoc).convert(markdown)
 
         self.assertEqual(document, source)
+
+    def test_round_trips_media_through_the_attachment_manifest(self) -> None:
+        media = MediaResolver([("diagram.png", "file-1"), ("report.pdf", "file-2")])
+        source = {
+            "type":
+            "doc",
+            "version":
+            1,
+            "content": [
+                {
+                    "type":
+                    "mediaSingle",
+                    "attrs": {
+                        "layout": "center"},
+                    "content": [
+                        {
+                            "type": "media",
+                            "attrs": {
+                                "type": "file",
+                                "id": "file-1",
+                                "collection": "contentId-123456",
+                                "alt": "A diagram"}}]},
+                {
+                    "type":
+                    "mediaSingle",
+                    "attrs": {
+                        "layout": "center"},
+                    "content":
+                    [{
+                        "type": "media",
+                        "attrs": {
+                            "type": "external",
+                            "url": "https://example.test/logo.png",
+                            "alt": "logo.png"}}]}]}
+        pandoc = PandocBridge()
+
+        markdown = ADFToMarkdownConverter(pandoc, media).convert(source)
+        document = MarkdownToADFConverter(pandoc, media, "contentId-123456").convert(markdown)
+
+        self.assertEqual(document, source)
+
+    def test_rejects_an_image_beside_other_paragraph_content(self) -> None:
+        pandoc = RecordingPandoc(
+            pandoc_document(
+                [
+                    {
+                        "t":
+                        "Para",
+                        "c": [
+                            {
+                                "t": "Str",
+                                "c": "text"}, {
+                                    "t": "Space"}, {
+                                        "t": "Image",
+                                        "c": [["", [], []], [], ["_attachments/diagram.png", ""]]}]}]))
+
+        with self.assertRaisesRegex(ConversionError, "only content"):
+            MarkdownToADFConverter(pandoc, MediaResolver([("diagram.png", "file-1")]), "contentId-123456").convert("source")
 
     def test_rejects_malformed_or_misplaced_opaque_markers(self) -> None:
         malformed = RecordingPandoc(pandoc_document([{"t": "CodeBlock", "c": [["", ["atlas_doc_format"], []], "not json"]}]))

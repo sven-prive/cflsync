@@ -6,7 +6,7 @@
 import json
 import unittest
 
-from cflsync import ADFToMarkdownConverter, PandocRunner
+from cflsync import ADFToMarkdownConverter, MediaResolver, PandocRunner
 
 
 class RecordingPandoc:
@@ -23,14 +23,26 @@ class TestADFToMarkdownConverter(unittest.TestCase):
         paragraph = {"type": "paragraph", "content": [text], "attrs": {"alignment": "center"}}
         item = {"type": "listItem", "content": [paragraph], "attrs": {"editorState": "unused"}}
         cases = [
-            (paragraph, "Para"),
-            ({"type": "heading", "attrs": {"level": 3}, "content": [text]}, "Header"),
-            ({"type": "blockquote", "content": [paragraph]}, "BlockQuote"),
-            ({"type": "bulletList", "content": [item]}, "BulletList"),
-            ({"type": "orderedList", "attrs": {"order": 4}, "content": [item]}, "OrderedList"),
-            ({"type": "codeBlock", "attrs": {"language": "python"}, "content": [text]}, "CodeBlock"),
-            ({"type": "rule"}, "HorizontalRule"),
-        ]
+            (paragraph, "Para"), ({
+                "type": "heading",
+                "attrs": {
+                    "level": 3},
+                "content": [text]}, "Header"), ({
+                    "type": "blockquote",
+                    "content": [paragraph]}, "BlockQuote"), ({
+                        "type": "bulletList",
+                        "content": [item]}, "BulletList"),
+            ({
+                "type": "orderedList",
+                "attrs": {
+                    "order": 4},
+                "content": [item]}, "OrderedList"),
+            ({
+                "type": "codeBlock",
+                "attrs": {
+                    "language": "python"},
+                "content": [text]}, "CodeBlock"), ({
+                    "type": "rule"}, "HorizontalRule"), ]
         for node, expected_type in cases:
             with self.subTest(node_type=node["type"]):
                 node.setdefault("attrs", {})["futureMetadata"] = {"value": 42}
@@ -46,15 +58,34 @@ class TestADFToMarkdownConverter(unittest.TestCase):
     def test_unsupported_formatting_keeps_text_and_supported_marks(self) -> None:
         pandoc = RecordingPandoc()
         text = {
-            "type": "text", "text": "Synthetic", "marks": [
-                {"type": "textColor", "attrs": {"color": "#123456"}},
-                {"type": "underline"},
-                {"type": "code", "extra": True},
-                {"type": "strong", "attrs": {"future": 1}},
-                {"type": "link", "attrs": {"href": "https://example.test", "future": 2}},
-            ]}
-        document = {"type": "doc", "version": 1, "content": [
-            {"type": "paragraph", "content": [text, {"type": "hardBreak", "attrs": {"future": 3}}]}]}
+            "type":
+            "text",
+            "text":
+            "Synthetic",
+            "marks": [
+                {
+                    "type": "textColor",
+                    "attrs": {
+                        "color": "#123456"}}, {
+                            "type": "underline"}, {
+                                "type": "code",
+                                "extra": True}, {
+                                    "type": "strong",
+                                    "attrs": {
+                                        "future": 1}}, {
+                                            "type": "link",
+                                            "attrs": {
+                                                "href": "https://example.test",
+                                                "future": 2}}, ]}
+        document = {
+            "type": "doc",
+            "version": 1,
+            "content": [{
+                "type": "paragraph",
+                "content": [text, {
+                    "type": "hardBreak",
+                    "attrs": {
+                        "future": 3}}]}]}
         ADFToMarkdownConverter(pandoc).convert(document)
 
         inlines = pandoc.pandoc["blocks"][0]["c"]
@@ -68,15 +99,41 @@ class TestADFToMarkdownConverter(unittest.TestCase):
     def test_structures_and_invalid_required_values_retain_original_json(self) -> None:
         paragraph = {"type": "paragraph", "content": [{"type": "text", "text": "Cell"}]}
         nodes = [
-            {"type": "extension", "attrs": {"extensionKey": "synthetic", "metadata": {"value": 42}}},
-            {"type": "table", "attrs": {"layout": "wide"}, "content": [
-                {"type": "tableRow", "content": [
-                    {"type": "tableCell", "attrs": {"colspan": 2}, "content": [paragraph, paragraph]}]}]},
-            {"type": "heading", "attrs": {"level": "invalid"}, "content": []},
-            {"type": "orderedList", "attrs": {"order": 0}, "content": []},
-            {"type": "paragraph", "content": [{"type": "text", "text": "Invalid link", "marks": [
-                {"type": "link", "attrs": {"href": 42}}]}]},
-        ]
+            {
+                "type": "extension",
+                "attrs": {
+                    "extensionKey": "synthetic",
+                    "metadata": {
+                        "value": 42}}}, {
+                            "type":
+                            "table",
+                            "attrs": {
+                                "layout": "wide"},
+                            "content": [
+                                {
+                                    "type": "tableRow",
+                                    "content": [{
+                                        "type": "tableCell",
+                                        "attrs": {
+                                            "colspan": 2},
+                                        "content": [paragraph, paragraph]}]}]}, {
+                                            "type": "heading",
+                                            "attrs": {
+                                                "level": "invalid"},
+                                            "content": []}, {
+                                                "type": "orderedList",
+                                                "attrs": {
+                                                    "order": 0},
+                                                "content": []},
+            {
+                "type": "paragraph",
+                "content": [{
+                    "type": "text",
+                    "text": "Invalid link",
+                    "marks": [{
+                        "type": "link",
+                        "attrs": {
+                            "href": 42}}]}]}, ]
         for node in nodes:
             with self.subTest(node_type=node["type"]):
                 pandoc = RecordingPandoc()
@@ -165,6 +222,91 @@ class TestADFToMarkdownConverter(unittest.TestCase):
                                                                         "t": "CodeBlock",
                                                                         "c": [["", ["python"], []], "print(1)"]}, {
                                                                             "t": "HorizontalRule"}, ], })
+
+    def test_maps_media_resolved_through_the_attachment_manifest(self) -> None:
+        media = MediaResolver([("diagram.png", "file-1"), ("report.pdf", "file-2")])
+        pandoc = RecordingPandoc()
+        document = {
+            "type":
+            "doc",
+            "version":
+            1,
+            "content": [
+                {
+                    "type":
+                    "mediaSingle",
+                    "attrs": {
+                        "layout": "center",
+                        "width": 474},
+                    "content": [
+                        {
+                            "type": "media",
+                            "attrs": {
+                                "type": "file",
+                                "id": "file-1",
+                                "collection": "contentId-123456",
+                                "alt": "A diagram"}}]},
+                {
+                    "type": "mediaGroup",
+                    "content": [{
+                        "type": "media",
+                        "attrs": {
+                            "type": "file",
+                            "id": "file-2",
+                            "collection": "contentId-123456"}}]}]}
+
+        ADFToMarkdownConverter(pandoc, media).convert(document)
+
+        image, attached_file = pandoc.pandoc["blocks"]
+        self.assertEqual(
+            image, {
+                "t":
+                "Para",
+                "c": [
+                    {
+                        "t":
+                        "Image",
+                        "c": [
+                            ["", [], []], [{
+                                "t": "Str",
+                                "c": "A"}, {
+                                    "t": "Space"}, {
+                                        "t": "Str",
+                                        "c": "diagram"}], ["_attachments/diagram.png", ""]]}]})
+        self.assertEqual(
+            attached_file, {
+                "t": "Para",
+                "c": [{
+                    "t": "Link",
+                    "c": [["", [], []], [{
+                        "t": "Str",
+                        "c": "report.pdf"}], ["_attachments/report.pdf", ""]]}]})
+
+    def test_maps_external_media_without_a_manifest(self) -> None:
+        pandoc = RecordingPandoc()
+        media = {"type": "media", "attrs": {"type": "external", "url": "https://example.test/logo.png"}}
+        document = {"type": "doc", "version": 1, "content": [{"type": "mediaSingle", "content": [media]}]}
+
+        ADFToMarkdownConverter(pandoc).convert(document)
+
+        self.assertEqual(pandoc.pandoc["blocks"][0]["c"][0]["t"], "Image")
+
+    def test_retains_media_that_the_manifest_cannot_resolve(self) -> None:
+        pandoc = RecordingPandoc()
+        media = {"type": "media", "attrs": {"type": "file", "id": "file-9", "collection": "contentId-123456"}}
+        node = {"type": "mediaSingle", "content": [media]}
+
+        ADFToMarkdownConverter(pandoc, MediaResolver([
+            ("diagram.png", "file-1")])).convert({
+                "type": "doc",
+                "version": 1,
+                "content": [node]})
+
+        self.assertEqual(
+            pandoc.pandoc["blocks"][0], {
+                "t": "CodeBlock",
+                "c": [["", ["atlas_doc_format"], []],
+                      json.dumps(node, sort_keys=True, separators=(",", ":"))], })
 
     def test_retains_an_unsupported_inline_in_its_enclosing_block(self) -> None:
         pandoc = RecordingPandoc()
