@@ -20,11 +20,11 @@ class PandocError(SyncError):
 
 
 class ConversionError(SyncError):
-    """Raised when document markup cannot be converted without loss."""
+    """Raised when document markup cannot be converted safely."""
 
 
 class ADFToMarkdownConverter:
-    """Convert the supported ADF subset to canonical GFM."""
+    """Convert supported ADF content to GFM, retaining unsupported structures."""
 
     def __init__(self, pandoc) -> None:
         self._pandoc_runner = pandoc
@@ -36,9 +36,6 @@ class ADFToMarkdownConverter:
     def _to_pandoc(self, document, title=None):
         if document.get("type") != "doc" or document.get("version") != 1:
             raise ConversionError("ADF document must have type 'doc' and version 1")
-
-        if set(document) != {"type", "version", "content"}:
-            raise ConversionError("ADF document has unsupported fields")
 
         content = document.get("content")
         if not isinstance(content, list):
@@ -90,35 +87,19 @@ class ADFToMarkdownConverter:
         return self._convert_opaque(node)
 
     def _convert_paragraph(self, node):
-        attrs = node.get("attrs", {})
-        if not isinstance(attrs, Mapping) or set(attrs) - {"localId"}:
-            return self._convert_opaque(node)
-
-        if "localId" in attrs and not isinstance(attrs["localId"], str):
-            return self._convert_opaque(node)
-
-        paragraph = dict(node)
-        paragraph.pop("attrs", None)
-        paragraph.setdefault("content", [])
-        inlines = self._convert_inlines(paragraph)
+        inlines = self._convert_inlines(node)
         if inlines is None:
             return self._convert_opaque(node)
 
         return {"t": "Para", "c": inlines}
 
     def _convert_heading(self, node):
-        if not self._has_fields(node, {"type", "attrs", "content"}):
-            return self._convert_opaque(node)
-
         attrs = node.get("attrs")
-        if not isinstance(attrs, Mapping) or "level" not in attrs or set(attrs) - {"level", "localId"}:
-            return self._convert_opaque(node)
-
-        if "localId" in attrs and not isinstance(attrs["localId"], str):
+        if not isinstance(attrs, Mapping):
             return self._convert_opaque(node)
 
         level = attrs.get("level")
-        inlines = self._convert_inlines(node, {"attrs"})
+        inlines = self._convert_inlines(node)
         if type(level) is not int or not 1 <= level <= 6 or inlines is None:
             return self._convert_opaque(node)
 
@@ -132,9 +113,6 @@ class ADFToMarkdownConverter:
         return {"t": "BlockQuote", "c": self._convert_blocks(content)}
 
     def _convert_bullet_list(self, node):
-        if not self._has_fields(node, {"type", "content"}):
-            return self._convert_opaque(node)
-
         items = self._convert_list_items(node)
         if items is None:
             return self._convert_opaque(node)
@@ -142,11 +120,8 @@ class ADFToMarkdownConverter:
         return {"t": "BulletList", "c": items}
 
     def _convert_ordered_list(self, node):
-        if not self._has_fields(node, {"type", "content"}, {"attrs"}):
-            return self._convert_opaque(node)
-
         attrs = node.get("attrs", {})
-        if not isinstance(attrs, Mapping) or set(attrs) - {"order"}:
+        if not isinstance(attrs, Mapping):
             return self._convert_opaque(node)
 
         order = attrs.get("order", 1)
@@ -157,11 +132,8 @@ class ADFToMarkdownConverter:
         return {"t": "OrderedList", "c": [[order, {"t": "Decimal"}, {"t": "Period"}], items]}
 
     def _convert_code_block(self, node):
-        if not self._has_fields(node, {"type", "content"}, {"attrs"}):
-            return self._convert_opaque(node)
-
         attrs = node.get("attrs", {})
-        if not isinstance(attrs, Mapping) or set(attrs) - {"language"}:
+        if not isinstance(attrs, Mapping):
             return self._convert_opaque(node)
 
         language = attrs.get("language", "")
@@ -171,7 +143,7 @@ class ADFToMarkdownConverter:
 
         text = []
         for child in content:
-            if not isinstance(child, Mapping) or not self._has_fields(child, {"type", "text"}):
+            if not isinstance(child, Mapping):
                 return self._convert_opaque(node)
 
             if child.get("type") != "text" or not isinstance(child.get("text"), str):
@@ -182,9 +154,6 @@ class ADFToMarkdownConverter:
         return {"t": "CodeBlock", "c": [["", [language] if language else [], []], "".join(text)]}
 
     def _convert_rule(self, node):
-        if not self._has_fields(node, {"type"}):
-            return self._convert_opaque(node)
-
         return {"t": "HorizontalRule"}
 
     def _convert_list_items(self, node):
@@ -199,8 +168,7 @@ class ADFToMarkdownConverter:
 
             item_content = self._convert_block_content(item)
             if item_content is None:
-                items.append([self._convert_opaque(item)])
-                continue
+                return None
 
             blocks = self._convert_blocks(item_content)
             if blocks and blocks[0].get("t") == "Para":
@@ -210,9 +178,9 @@ class ADFToMarkdownConverter:
 
         return items
 
-    def _convert_inlines(self, node, optional=None):
-        content = self._convert_inline_content(node, optional)
-        if content is None:
+    def _convert_inlines(self, node):
+        content = node.get("content", [])
+        if not isinstance(content, list):
             return None
 
         inlines = []
@@ -239,15 +207,9 @@ class ADFToMarkdownConverter:
         return None
 
     def _convert_hard_break(self, node):
-        if not self._has_fields(node, {"type"}):
-            return None
-
         return [{"t": "LineBreak"}]
 
     def _convert_text(self, node):
-        if not self._has_fields(node, {"type", "text"}, {"marks"}):
-            return None
-
         text = node.get("text")
         if not isinstance(text, str) or "\n" in text or "\r" in text or "\t" in text:
             return None
@@ -273,29 +235,30 @@ class ADFToMarkdownConverter:
                 return None
 
             mark_type = mark["type"]
-            if mark_type in values or mark_type not in {"strong", "em", "strike", "code", "link"}:
+            if mark_type not in {"strong", "em", "strike", "code", "link"}:
+                continue
+
+            if mark_type in values:
                 return None
 
             values[mark_type] = mark
-        if "code" in values:
-            return self._convert_code_mark(inlines, values)
 
         result = inlines
+        if "code" in values:
+            result = self._convert_code_mark(inlines)
+            if result is None:
+                return None
+
         for mark_type, pandoc_type in (("strike", "Strikeout"), ("em", "Emph"), ("strong", "Strong")):
             if mark_type in values:
-                if not self._has_fields(values[mark_type], {"type"}):
-                    return None
-
                 result = [{"t": pandoc_type, "c": result}]
+
         if "link" in values:
             return self._convert_link_mark(result, values["link"])
 
         return result
 
-    def _convert_code_mark(self, inlines, values):
-        if len(values) != 1 or not self._has_fields(values["code"], {"type"}):
-            return None
-
+    def _convert_code_mark(self, inlines):
         text = []
         for inline in inlines:
             if inline.get("t") == "Space":
@@ -308,11 +271,8 @@ class ADFToMarkdownConverter:
         return [{"t": "Code", "c": [["", [], []], "".join(text)]}]
 
     def _convert_link_mark(self, inlines, mark):
-        if not self._has_fields(mark, {"type", "attrs"}):
-            return None
-
         attrs = mark.get("attrs")
-        if not isinstance(attrs, Mapping) or set(attrs) - {"href", "title"}:
+        if not isinstance(attrs, Mapping):
             return None
 
         href = attrs.get("href")
@@ -323,27 +283,11 @@ class ADFToMarkdownConverter:
         return [{"t": "Link", "c": [["", [], []], inlines, [href, title]]}]
 
     def _convert_block_content(self, node):
-        if not self._has_fields(node, {"type", "content"}):
-            return None
-
         content = node.get("content")
         if not isinstance(content, list):
             return None
 
         return content
-
-    def _convert_inline_content(self, node, optional=None):
-        if not self._has_fields(node, {"type", "content"}, optional):
-            return None
-
-        content = node.get("content")
-        if not isinstance(content, list):
-            return None
-
-        return content
-
-    def _has_fields(self, node, required, optional=None):
-        return required <= set(node) and set(node) <= required | (optional or set())
 
     def _convert_opaque(self, node):
         try:

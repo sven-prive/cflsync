@@ -55,11 +55,18 @@ media identifiers to the managed attachment IDs and local `_attachments/`
 paths recorded in the page cache. It has no API, filesystem, or cache access;
 the coordinator supplies an attachment manifest as `(filename, ID)` pairs.
 
-Only supported constructs receive a native GFM mapping. Unsupported ADF nodes
-and marks are retained as `atlas_doc_format` fenced blocks containing complete
-ADF-node JSON. For unsupported inline content, the smallest enclosing ADF
-block is retained so that the fence remains valid GFM. Malformed, altered, or
-contextually invalid retained JSON stops a push before any API request.
+Conversion is intentionally lossy. Supported nodes become readable GFM using
+the fields needed by their mapping; unrelated metadata, extra attributes, and
+unsupported formatting marks are ignored. Required values and content shapes
+are still checked at the ADF input boundary.
+
+Unsupported structures, including macros and complex tables, are retained as
+`atlas_doc_format` fenced blocks containing complete original ADF-node JSON.
+Node handlers inspect attributes that affect structural representability,
+such as table spans, rather than rejecting every unfamiliar attribute. For
+unsupported inline nodes, the smallest enclosing ADF block is retained so the
+fence remains valid GFM. Retained JSON is not normalized or stripped of metadata.
+Malformed or contextually invalid retained JSON stops reverse conversion.
 
 The full mapping, opaque-marker format, and required conversion tests are in
 [MAPPING.md](MAPPING.md).

@@ -12,14 +12,20 @@ Pandoc's JSON AST is an internal representation. The ADF API payload is a
 JSON-encoded ADF document; it is decoded before conversion and encoded again
 when sent to Confluence.
 
-ADF is the remote source of truth. The mapping is loss-aware: supported ADF is
-represented by ordinary Pandoc elements; unsupported ADF is retained as raw
-ADF JSON in a Pandoc code block, which Pandoc writes as a fenced GFM block.
+ADF is the remote source of truth. Conversion is intentionally lossy: supported
+content becomes readable GFM, while unrelated metadata and unsupported
+formatting are omitted. Unsupported structures are retained as complete ADF
+JSON in a Pandoc code block, which Pandoc writes as a fenced GFM block.
 
 ## Conversion invariants
 
 - Every emitted ADF document has `type: "doc"` and `version: 1`.
-- Unsupported ADF data is never silently dropped or approximated.
+- Supported node handlers consume only the fields needed for conversion.
+  Extra fields and attributes do not alone cause opaque fallback.
+- Required values and content shapes remain validated. Unsupported node types
+  and structures retain their original JSON, including metadata.
+- Ignored attributes and formatting are not recovered by reverse conversion;
+  a subsequent push may discard them remotely.
 - Ordinary Pandoc GFM is not interpreted as a Confluence-specific construct
   unless it matches a mapping below or a cflsync opaque marker.
 - An opaque marker is decoded only as JSON and validated in its destination
@@ -59,15 +65,15 @@ page push integration.
 | `codeBlock` | `CodeBlock`; `attrs.language` becomes its language class | `codeBlock` with `attrs.language` |
 | `rule` | `HorizontalRule` | `rule` |
 
-ADF list attributes that Pandoc represents—principally ordered-list start
-number—are retained. Unsupported list, heading, code-block, or layout
-attributes cause the smallest enclosing ADF block to use opaque retention.
+Handlers validate and convert meaningful fields such as heading level,
+ordered-list start number, and code language. Other attributes, including
+`localId` and presentation attributes, are ignored for these supported nodes.
+A paragraph with omitted or empty `content` converts to an empty paragraph,
+which Pandoc omits from canonical GFM. Malformed required values cause opaque
+fallback; malformed document structure may instead raise a conversion error.
 
-Headings and paragraphs accept Confluence's `attrs.localId` as editor metadata;
-it is omitted from Markdown and is not preserved on conversion back to ADF.
-Other unsupported attributes still cause opaque retention. A paragraph with
-omitted or empty `content` converts to an empty paragraph, which Pandoc omits
-from canonical GFM.
+Blockquotes map to Markdown `>` blocks and back to ADF `blockquote` nodes,
+with their contained blocks and inline formatting converted recursively.
 
 ## Direct inline mappings
 
@@ -81,16 +87,20 @@ from canonical GFM.
 | `code` mark | `Code` | `code` mark |
 | `link` mark | `Link` | `link` mark |
 
-Text marks are emitted in a deterministic nesting order. If an ADF mark set
-cannot be represented as a properly nested Pandoc inline tree, its enclosing
-ADF block is retained opaquely.
+Supported text marks are emitted in a deterministic nesting order. Other marks
+are ignored while retaining their text and supported marks. Extra fields on
+supported marks are ignored, but required values such as a link's non-empty
+string destination remain validated. Malformed or duplicate supported marks
+cause retention of the enclosing block. Code can be combined with the other
+supported marks.
 
 ## Tables and media
 
-An ADF `table` maps to Pandoc `Table` only when it has no spans, no layout or
-styling attributes that affect meaning, and cells can be represented by the
-Pandoc/GFM table subset. The reverse mapping emits `table`, `tableRow`, and
-`tableHeader` or `tableCell` nodes. All other tables are opaque.
+Tables currently remain opaque. A future native table mapping must inspect
+structure: simple single-paragraph cells can map to GFM, while multi-paragraph
+cells, spans, and nested blocks require retention of the whole table. Decorative
+attributes alone should not prevent conversion. The reverse mapping will emit
+`table`, `tableRow`, and `tableHeader` or `tableCell` nodes for the supported subset.
 
 `media`, `mediaInline`, `mediaSingle`, and `mediaGroup` map to Pandoc `Image`
 or `Link` only when the page attachment manifest resolves the ADF media
@@ -129,7 +139,7 @@ ADF has inline nodes such as `status`, `mention`, `date`, `emoji`,
 `inlineCard`, and `mediaInline`. A GFM fence is a block construct and cannot
 occupy a position inside a Pandoc `Para` or `Header`.
 
-Therefore, when an unsupported inline node or mark occurs, the ADF reader
+Therefore, when an unsupported inline node occurs, the ADF reader
 retains the smallest enclosing ADF block node as one `atlas_doc_format` marker.
 For example, a paragraph containing a `status` node becomes a fence containing
 the complete original `paragraph` JSON. This is lossless, but the rest of that
@@ -148,12 +158,12 @@ retains the nearest valid ancestor rather than changing the document shape.
   `extensionFrame`.
 - `extension`, `bodiedExtension`, `multiBodiedExtension`, sync blocks, and
   third-party Confluence macro nodes.
-- `textColor`, `underline`, `subsup`, `border`, `alignment`, `breakout`, and
-  other unhandled marks or attributes.
-- Unsupported table geometry, captions, annotations, and collaboration data.
+- Tables, including multi-paragraph cells and unsupported geometry.
 
 Each feature can later be promoted to a readable GFM mapping only when the
-reverse mapping, supported attribute set, and round-trip tests are defined.
+structural mapping and reverse conversion are defined. Formatting marks such
+as `textColor`, `underline`, and `subsup`, and decorative attributes such as
+alignment, do not by themselves trigger opaque retention on supported nodes.
 
 ## Attachment interaction
 
@@ -179,4 +189,6 @@ and exposes the two pure lookups `path_for()` and `id_for()`.
 - Parent-context rejection for malformed or misplaced opaque JSON.
 - Attachment resolver tests for image and file references, ambiguity, and path
   traversal rejection.
-- Rejection of unsupported attributes rather than silent loss.
+- Tolerance of extra metadata and formatting on supported nodes without
+  mutating the source document.
+- Validation of required values and exact retention of unsupported structures.
