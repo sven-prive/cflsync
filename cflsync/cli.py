@@ -163,7 +163,7 @@ class PagePullCommand:
 
         staging = workarea.stage_page(directory_name, markdown, bodies, source=source, managed_attachments=managed)
         try:
-            with workarea.replace_page(staging, directory_name, source):
+            with workarea.replace_page(staging, directory_name, source, set(managed) | set(bodies)):
                 state.save(cache_path)
         finally:
             if staging.exists():

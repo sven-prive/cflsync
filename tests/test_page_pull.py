@@ -283,7 +283,7 @@ class TestPagePull(unittest.TestCase):
                                 if failure == "state" and target == workarea.cache_path("123456"):
                                     raise OSError("injected state write failure")
 
-                                if failure == "install" and Path(source).name.startswith(".cflsync-stage-"):
+                                if failure == "install" and any(part.startswith(".cflsync-stage-") for part in Path(source).parts):
                                     raise OSError("injected install failure")
 
                                 return replace(source, target)

@@ -159,8 +159,12 @@ local files and cache. The planned `page push --force` will resolve conflicts
 in favor of local content; push is not implemented yet.
 
 `page pull` stages downloads, conversion, attachment-path validation, and
-content validation in a temporary directory, then swaps local representation
-and cache only after every operation succeeds. `page push` uploads changed
+content validation in a temporary directory. For an existing page it preserves
+the page and attachment directories, atomically replaces `page.md` and each
+managed attachment, and writes the cache last. Only a title change renames the
+existing page directory. Backups allow rollback of file changes and the rename
+if installation or the cache write fails. These individual replacements are
+not a single filesystem transaction across all files. `page push` uploads changed
 attachments, updates content with optimistic concurrency, applies managed
 attachment deletions, and writes cache only after complete success. A failed
 remote sequence is reported as incomplete; the next `page status` detects the

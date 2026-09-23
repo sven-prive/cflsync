@@ -3,6 +3,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 """Tests for state-backed workarea operations."""
 
+import os
 import unittest
 
 from cflsync import PageState, StateError, Workarea
@@ -137,12 +138,69 @@ class TestWorkareaMaterialization(unittest.TestCase):
             target.mkdir()
             (target / "page.md").write_text("previous\n", encoding="utf-8")
             (target / "_attachments").mkdir()
+            directory_inode = target.stat().st_ino
+            attachment_inode = (target / "_attachments").stat().st_ino
             staging = workarea.stage_page("Example page", "replacement\n", {"new.txt": b"new"})
 
             workarea.install_page(staging, "Example page", replace=True)
 
             self.assertEqual((target / "page.md").read_text(encoding="utf-8"), "replacement\n")
             self.assertEqual((target / "_attachments" / "new.txt").read_bytes(), b"new")
+            self.assertEqual(target.stat().st_ino, directory_inode)
+            self.assertEqual((target / "_attachments").stat().st_ino, attachment_inode)
+
+    def test_repull_preserves_current_directory_and_unmanaged_files(self) -> None:
+        for name in ["Example page", "Renamed"]:
+            with self.subTest(name=name):
+                with temporary_workarea() as workarea:
+                    source = workarea.root_dir / "Example page"
+                    source.mkdir()
+                    (source / "page.md").write_text("previous\n")
+                    (source / "notes.txt").write_text("notes\n")
+                    attachments = source / "_attachments"
+                    attachments.mkdir()
+                    (attachments / "old.txt").write_text("old\n")
+                    source_inode = source.stat().st_ino
+                    attachment_inode = attachments.stat().st_ino
+                    notes_inode = (source / "notes.txt").stat().st_ino
+                    staging = workarea.stage_page(name, "replacement\n", {"new.txt": b"new"})
+                    original_cwd = os.getcwd()
+                    os.chdir(source)
+                    try:
+                        with workarea.replace_page(staging, name, source, ["old.txt", "new.txt"]):
+                            self.assertEqual(os.getcwd(), str(workarea.root_dir / name))
+
+                        self.assertEqual(os.getcwd(), str(workarea.root_dir / name))
+                    finally:
+                        os.chdir(original_cwd)
+
+                    target = workarea.root_dir / name
+                    self.assertEqual(target.stat().st_ino, source_inode)
+                    self.assertEqual((target / "_attachments").stat().st_ino, attachment_inode)
+                    self.assertEqual((target / "notes.txt").stat().st_ino, notes_inode)
+                    self.assertEqual((target / "page.md").read_text(), "replacement\n")
+                    self.assertFalse((target / "_attachments/old.txt").exists())
+                    self.assertEqual((target / "_attachments/new.txt").read_bytes(), b"new")
+
+    def test_failed_commit_restores_files_and_directory_name(self) -> None:
+        for name in ["Example page", "Renamed"]:
+            with self.subTest(name=name):
+                with temporary_workarea() as workarea:
+                    source = workarea.root_dir / "Example page"
+                    source.mkdir()
+                    (source / "page.md").write_text("previous\n")
+                    (source / "_attachments").mkdir()
+                    (source / "_attachments/old.txt").write_bytes(b"old")
+                    inode = source.stat().st_ino
+                    staging = workarea.stage_page(name, "replacement\n", {"new.txt": b"new"})
+                    with self.assertRaisesRegex(RuntimeError, "commit failed"):
+                        with workarea.replace_page(staging, name, source, ["old.txt", "new.txt"]):
+                            raise RuntimeError("commit failed")
+
+                    self.assertEqual(source.stat().st_ino, inode)
+                    self.assertEqual((source / "page.md").read_text(), "previous\n")
+                    self.assertEqual((source / "_attachments/old.txt").read_bytes(), b"old")
+                    self.assertFalse((source / "_attachments/new.txt").exists())
 
 
 # vim: set ts=4 sw=4 et tw=132:

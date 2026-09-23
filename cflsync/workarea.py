@@ -455,8 +455,12 @@ class Workarea:
             raise Workarea.Error(f"cannot stage page directory: {error}") from error
 
     @contextmanager
-    def replace_page(self, staging: Path, directory_name: str, source: Path | None = None) -> Iterator[Path]:
-        """Install staged files, retaining the old directory until the caller commits state."""
+    def replace_page(self,
+                     staging: Path,
+                     directory_name: str,
+                     source: Path | None = None,
+                     managed_attachments: Iterable[str] = ()) -> Iterator[Path]:
+        """Replace managed files, retaining backups until the caller commits state."""
         target = self._page_directory_path(directory_name)
         if source is not None:
             if source.is_symlink() or source != self._page_directory_path(source.name):
@@ -465,33 +469,78 @@ class Workarea:
         if target.exists() and target != source:
             raise Workarea.Error(f"page directory '{directory_name}' already exists")
 
-        backup = None
-        installed = False
-        committed = False
-        try:
-            if source is not None:
-                backup = Path(mkdtemp(prefix=".cflsync-backup-", dir=self.root_dir))
-                backup.rmdir()
-                os.replace(source, backup)
-
+        if source is None:
             self.install_page(staging, directory_name)
-            installed = True
-            yield target
-            committed = True
-        except BaseException:
-            if installed:
+            try:
+                yield target
+            except BaseException:
                 os.replace(target, staging)
+                raise
 
-            if source is not None and backup is not None and backup.exists():
-                os.replace(backup, source)
+            return
+
+        paths = [Path("page.md")]
+        for filename in sorted(set(managed_attachments)):
+            self._attachment_path(source / "_attachments", filename)
+            paths.append(Path("_attachments") / filename)
+
+        backup = Path(mkdtemp(prefix=".cflsync-backup-", dir=self.root_dir))
+        (backup / "_attachments").mkdir()
+        changed = []
+        renamed = False
+        created_attachments = False
+        cleanup = False
+        try:
+            if source != target:
+                os.rename(source, target)
+                renamed = True
+
+            attachment_directory = target / "_attachments"
+            if attachment_directory.is_symlink():
+                raise Workarea.Error("attachment directory must not be a symbolic link")
+
+            if not attachment_directory.exists():
+                attachment_directory.mkdir()
+                created_attachments = True
+
+            for relative in paths:
+                destination = target / relative
+                replacement = staging / relative
+                existed = destination.exists() or destination.is_symlink()
+                if existed:
+                    shutil.copy2(destination, backup / relative, follow_symlinks=False)
+
+                if replacement.exists() or replacement.is_symlink():
+                    os.replace(replacement, destination)
+                elif existed:
+                    destination.unlink()
+
+                changed.append((relative, existed))
+
+            yield target
+            cleanup = True
+        except BaseException:
+            for relative, existed in reversed(changed):
+                if existed:
+                    os.replace(backup / relative, target / relative)
+                else:
+                    (target / relative).unlink(missing_ok=True)
+
+            if created_attachments:
+                (target / "_attachments").rmdir()
+
+            if renamed:
+                os.rename(target, source)
+
+            cleanup = True
 
             raise
         finally:
-            if committed and backup is not None and backup.exists():
+            if cleanup:
                 shutil.rmtree(backup, ignore_errors=True)
 
     def install_page(self, staging: Path, directory_name: str, replace: bool = False) -> Path:
-        """Atomically make a complete staged page directory visible."""
+        """Install a new page directory or atomically replace its files."""
         target = self._page_directory_path(directory_name)
         if target.exists() and not replace:
             raise Workarea.Error(f"page directory '{directory_name}' already exists")
@@ -513,17 +562,15 @@ class Workarea:
 
             return target
 
-        backup = Path(mkdtemp(prefix=".cflsync-backup-", dir=self.root_dir))
-        backup.rmdir()
+        filenames = {path.name for path in (target / "_attachments").iterdir()}
+        filenames.update(path.name for path in (staging / "_attachments").iterdir())
         try:
-            os.replace(target, backup)
-            os.replace(staging, target)
+            with self.replace_page(staging, directory_name, target, filenames):
+                pass
         except OSError as error:
-            if backup.exists() and not target.exists():
-                os.replace(backup, target)
             raise Workarea.Error(f"cannot replace page directory: {error}") from error
 
-        shutil.rmtree(backup)
+        shutil.rmtree(staging, ignore_errors=True)
 
         return target
 
