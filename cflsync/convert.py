@@ -12,8 +12,11 @@ import json
 import re
 import subprocess
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import date, datetime, time
 from html import escape
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from tzlocal import get_localzone_name
 
 from .errors import SyncError
 
@@ -31,13 +34,38 @@ PANEL_ALERTS = {
 ALERT_PANELS = {"note": "note", "tip": "tip", "important": "info", "warning": "warning", "caution": "error"}
 
 
-def _local_date(timestamp):
+def _local_zone_name():
+    """Return the local machine's IANA time-zone name."""
+    try:
+        return get_localzone_name()
+    except ZoneInfoNotFoundError as error:
+        raise ConversionError("local time zone is unavailable") from error
+
+
+def _date_text(timestamp):
     if not isinstance(timestamp, str) or not timestamp.isdigit():
         return None
 
     try:
-        return datetime.fromtimestamp(int(timestamp) / 1000).date().isoformat()
-    except (OSError, OverflowError, ValueError):
+        zone_name = _local_zone_name()
+        local_time = datetime.fromtimestamp(int(timestamp) / 1000, ZoneInfo(zone_name))
+    except (OSError, OverflowError, ValueError, ZoneInfoNotFoundError):
+        return None
+
+    return f"{local_time.date().isoformat()}[{zone_name}]"
+
+
+def _date_timestamp(text):
+    match = re.fullmatch(r"(\d{4}-\d{2}-\d{2})(?:\[([^\[\]]+)\])?", text)
+    if match is None:
+        return None
+
+    try:
+        calendar_date = date.fromisoformat(match.group(1))
+        zone_name = match.group(2) or _local_zone_name()
+        zone = ZoneInfo(zone_name)
+        return str(int(datetime.combine(calendar_date, time.min, zone).timestamp() * 1000))
+    except (OSError, OverflowError, ValueError, ZoneInfoNotFoundError):
         return None
 
 
@@ -535,24 +563,24 @@ class ADFToMarkdownConverter:
                     "c": ["html", "</span>"]}, ]
 
     def _convert_date(self, node):
-        """Convert an ADF timestamp to its local calendar date."""
+        """Convert an ADF timestamp to a local calendar date with its IANA zone."""
         attrs = node.get("attrs")
         if not isinstance(attrs, Mapping):
             return None
 
         timestamp = attrs.get("timestamp")
-        date = _local_date(timestamp)
-        if date is None:
+        text = _date_text(timestamp)
+        if text is None:
             return None
 
-        inlines = self._convert_text({"type": "text", "text": date})
+        inlines = self._convert_text({"type": "text", "text": text})
         if inlines is None:
             return None
 
         return [
             {
                 "t": "RawInline",
-                "c": ["html", f'<span cflsync-type="date" cflsync-timestamp="{timestamp}">']}, *inlines, {
+                "c": ["html", '<span cflsync-type="date">']}, *inlines, {
                     "t": "RawInline",
                     "c": ["html", "</span>"]}, ]
 
@@ -1249,13 +1277,21 @@ class MarkdownToADFConverter:
         inlines.append({"type": "status", "attrs": {"text": text, "color": color}})
 
     def _convert_date_span(self, attributes, text, inlines):
-        if set(attributes) != {"cflsync-type", "cflsync-timestamp"}:
+        if attributes.get("cflsync-type") != "date":
             raise ConversionError("date span has unsupported attributes")
 
-        timestamp = attributes["cflsync-timestamp"]
-        expected_date = _local_date(timestamp)
-        if expected_date is None or text != expected_date:
-            raise ConversionError("date span text must match its local timestamp date")
+        if "cflsync-timestamp" in attributes:
+            if set(attributes) != {"cflsync-type", "cflsync-timestamp"} or not attributes["cflsync-timestamp"].isdigit():
+                raise ConversionError("date span has unsupported attributes")
+
+            timestamp = attributes["cflsync-timestamp"]
+        else:
+            if set(attributes) != {"cflsync-type"}:
+                raise ConversionError("date span has unsupported attributes")
+
+            timestamp = _date_timestamp(text)
+            if timestamp is None:
+                raise ConversionError("date span must contain YYYY-MM-DD[time-zone]")
 
         inlines.append({"type": "date", "attrs": {"timestamp": timestamp}})
 

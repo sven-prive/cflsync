@@ -11,6 +11,8 @@ license-files = ["LICENSE.md"]
 requires-python = ">=3.11"
 dependencies = [
     "platformdirs>=4.3.8",
+    "tzdata>=2025.2",
+    "tzlocal>=5.3",
 ]
 
 [project.scripts]

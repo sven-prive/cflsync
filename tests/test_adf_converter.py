@@ -9,6 +9,8 @@
 import json
 import unittest
 from datetime import datetime
+from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from cflsync import ADFToMarkdownConverter, MediaResolver, PandocRunner
 
@@ -501,22 +503,24 @@ class TestADFToMarkdownConverter(unittest.TestCase):
     def test_maps_a_date_to_a_raw_html_span(self) -> None:
         pandoc = RecordingPandoc()
         timestamp = "1775001600000"
-        expected = datetime.fromtimestamp(int(timestamp) / 1000).date().isoformat()
+        zone_name = "Europe/Brussels"
+        expected = f"{datetime.fromtimestamp(int(timestamp) / 1000, ZoneInfo(zone_name)).date().isoformat()}[{zone_name}]"
         date = {"type": "date", "attrs": {"timestamp": timestamp}}
 
-        ADFToMarkdownConverter(pandoc).convert(
-            {
-                "type": "doc",
-                "version": 1,
-                "content": [{
-                    "type": "paragraph",
-                    "content": [date]}], })
+        with patch("cflsync.convert._local_zone_name", return_value=zone_name):
+            ADFToMarkdownConverter(pandoc).convert(
+                {
+                    "type": "doc",
+                    "version": 1,
+                    "content": [{
+                        "type": "paragraph",
+                        "content": [date]}], })
 
         self.assertEqual(
             pandoc.pandoc["blocks"][0]["c"], [
                 {
                     "t": "RawInline",
-                    "c": ["html", f'<span cflsync-type="date" cflsync-timestamp="{timestamp}">']}, {
+                    "c": ["html", '<span cflsync-type="date">']}, {
                         "t": "Str",
                         "c": expected}, {
                             "t": "RawInline",

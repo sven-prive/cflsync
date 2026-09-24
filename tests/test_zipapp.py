@@ -39,6 +39,11 @@ class TestZipapp(unittest.TestCase):
         with zipfile.ZipFile(ZIPAPP) as archive:
             self.assertIn("platformdirs/__init__.py", archive.namelist())
 
+    def test_vendors_time_zone_dependencies(self) -> None:
+        with zipfile.ZipFile(ZIPAPP) as archive:
+            self.assertIn("tzdata/__init__.py", archive.namelist())
+            self.assertIn("tzlocal/__init__.py", archive.namelist())
+
     def test_scoop_launcher_uses_the_colocated_interpreter(self) -> None:
         self.assertEqual(
             SCOOP_LAUNCHER.read_text(encoding="utf-8"), '@"%~dp0python.exe" "%~dp0cflsync.pyz" %*\n@exit /b %errorlevel%\n',

@@ -81,12 +81,21 @@ be edited, but their required attributes must remain intact:
 
 - Change the text inside a status span and, if needed, its
   `background-color` to `gray`, `purple`, `blue`, `red`, `yellow`, or `green`.
-- Change a date span's millisecond `cflsync-timestamp` and its displayed date.
-  The displayed date must match that timestamp in the local time zone.
+- Change a date span's `YYYY-MM-DD[Region/City]` text. The symbolic time zone
+  makes the date deterministic across contributors. A date without `[Region/City]`
+  uses the local machine time zone on push.
 - A mention span needs its non-empty `cflsync-id`; preserve its other metadata
   unless the corresponding Confluence account values are known.
 
 These are cflsync-specific HTML forms rather than ordinary Markdown syntax.
+For example, a pulled date is written as:
+
+```html
+<span cflsync-type="date">2026-04-01[Europe/Brussels]</span>
+```
+
+Legacy date spans with `cflsync-timestamp` remain supported and preserve that
+timestamp unchanged.
 
 ### Other macros
 

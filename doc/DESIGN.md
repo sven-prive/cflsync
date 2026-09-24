@@ -21,6 +21,10 @@ corresponding `uv.lock` update. Do not install unmanaged project dependencies
 with `pip` or rely on globally installed Python packages. Pandoc is an
 external executable prerequisite, not a Python package dependency.
 
+`tzlocal` resolves the machine's IANA time-zone name across supported
+platforms. `tzdata` supplies the IANA database for the embedded Windows
+runtime, where the operating system does not provide it to `zoneinfo`.
+
 Prefer small, module-level classes with shallow inheritance. Use duck typing
 for internal collaborations when a formal abstraction adds no behavioral
 guarantee. Add type annotations for public contracts and non-obvious data

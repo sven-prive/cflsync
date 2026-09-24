@@ -192,12 +192,14 @@ keeping its identity. Reading GFM turns a typed `:shortcode:` into a Pandoc
 emoji span, which the reverse mapping accepts and reduces to the same Unicode
 text; other spans have no ADF form.
 
-A date becomes `<span cflsync-type="date" cflsync-timestamp="TIMESTAMP">LOCAL-DATE</span>`.
-`LOCAL-DATE` is derived from `TIMESTAMP` in the machine-local timezone. Reverse
-conversion parses the span through Pandoc and accepts only the exact attributes
-and a date text matching the local date for that timestamp. The original
-timestamp is then retained. A malformed timestamp retains its enclosing block
-opaquely.
+A date becomes `<span cflsync-type="date">YYYY-MM-DD[REGION/CITY]</span>`,
+where the date and IANA zone are derived from `TIMESTAMP` in the pulling
+machine's local time zone. Reverse conversion parses the date and zone to an
+ADF timestamp at local midnight. A date without `[REGION/CITY]` uses the local
+zone of the machine performing the push. Legacy spans containing
+`cflsync-timestamp` remain accepted; that timestamp is canonical and is copied
+without conversion. Invalid date text or symbolic zones cause conversion to
+fail before an API request.
 
 A status becomes `<span cflsync-type="status" style="background-color: COLOR">TEXT</span>`.
 ADF `neutral` uses CSS `gray`; every other supported ADF status color uses the
