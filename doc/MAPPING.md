@@ -192,25 +192,25 @@ keeping its identity. Reading GFM turns a typed `:shortcode:` into a Pandoc
 emoji span, which the reverse mapping accepts and reduces to the same Unicode
 text; other spans have no ADF form.
 
-A date becomes `<span cflsync-type="date">YYYY-MM-DD[REGION/CITY]</span>`,
+A date becomes `<span cfl-type="date">YYYY-MM-DD[REGION/CITY]</span>`,
 where the date and IANA zone are derived from `TIMESTAMP` in the pulling
 machine's local time zone. Reverse conversion parses the date and zone to an
 ADF timestamp at local midnight. A date without `[REGION/CITY]` uses the local
-zone of the machine performing the push. Legacy spans containing
-`cflsync-timestamp` remain accepted; that timestamp is canonical and is copied
+zone of the machine performing the push. Spans containing `cfl-timestamp` use
+that timestamp as the canonical value and copy it
 without conversion. Invalid date text or symbolic zones cause conversion to
 fail before an API request.
 
-A status becomes `<span cflsync-type="status" style="background-color: COLOR">TEXT</span>`.
+A status becomes `<span cfl-type="status" style="background-color: COLOR">TEXT</span>`.
 ADF `neutral` uses CSS `gray`; every other supported ADF status color uses the
 same CSS name. Reverse conversion parses this raw HTML through Pandoc and
 accepts only one plain-text status span with those exact attributes. Renderers
 may sanitize the custom attribute or style, but the Markdown source remains
 reversible for cflsync.
 
-A mention becomes `<span cflsync-type="mention" cflsync-id="ACCOUNT-ID">TEXT</span>`.
-When present, `accessLevel` and `userType` become `cflsync-access-level` and
-`cflsync-user-type` attributes. `localId` is ignored. Reverse conversion parses
+A mention becomes `<span cfl-type="mention" cfl-id="ACCOUNT-ID">TEXT</span>`.
+When present, `accessLevel` and `userType` become `cfl-access-level` and
+`cfl-user-type` attributes. `localId` is ignored. Reverse conversion parses
 the span through Pandoc and requires a non-empty account ID; it performs no
 name or email lookup. Plain Markdown has no mention-creation syntax.
 

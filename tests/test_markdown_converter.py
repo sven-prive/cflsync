@@ -441,7 +441,7 @@ class TestMarkdownToADFConverter(unittest.TestCase):
 
     def test_maps_a_raw_html_status_through_pandoc(self) -> None:
         document = MarkdownToADFConverter(PandocRunner()).convert(
-            'Before <span cflsync-type="status" style="background-color: green">Done &amp; ready</span> after\n')
+            'Before <span cfl-type="status" style="background-color: green">Done &amp; ready</span> after\n')
 
         self.assertEqual(
             document["content"][0], {
@@ -481,10 +481,10 @@ class TestMarkdownToADFConverter(unittest.TestCase):
 
         self.assertEqual(document, source)
 
-    def test_preserves_a_legacy_timestamp_date_through_pandoc(self) -> None:
+    def test_preserves_a_timestamp_date_through_pandoc(self) -> None:
         timestamp = "1775001600000"
         document = MarkdownToADFConverter(
-            PandocRunner()).convert(f'<span cflsync-type="date" cflsync-timestamp="{timestamp}">changed text</span>\n')
+            PandocRunner()).convert(f'<span cfl-type="date" cfl-timestamp="{timestamp}">changed text</span>\n')
 
         self.assertEqual(
             document["content"][0], {
@@ -498,8 +498,7 @@ class TestMarkdownToADFConverter(unittest.TestCase):
         zone_name = "Europe/Brussels"
         calendar_date = "2026-04-01"
         timestamp = str(int(datetime(2026, 4, 1, tzinfo=ZoneInfo(zone_name)).timestamp() * 1000))
-        document = MarkdownToADFConverter(
-            PandocRunner()).convert(f'<span cflsync-type="date">{calendar_date}[{zone_name}]</span>\n')
+        document = MarkdownToADFConverter(PandocRunner()).convert(f'<span cfl-type="date">{calendar_date}[{zone_name}]</span>\n')
 
         self.assertEqual(
             document["content"][0], {
@@ -514,7 +513,7 @@ class TestMarkdownToADFConverter(unittest.TestCase):
         calendar_date = "2026-04-01"
         timestamp = str(int(datetime(2026, 4, 1, tzinfo=ZoneInfo(zone_name)).timestamp() * 1000))
         with patch("cflsync.convert._local_zone_name", return_value=zone_name):
-            document = MarkdownToADFConverter(PandocRunner()).convert(f'<span cflsync-type="date">{calendar_date}</span>\n')
+            document = MarkdownToADFConverter(PandocRunner()).convert(f'<span cfl-type="date">{calendar_date}</span>\n')
 
         self.assertEqual(
             document["content"][0], {
@@ -545,8 +544,8 @@ class TestMarkdownToADFConverter(unittest.TestCase):
 
     def test_maps_a_raw_html_mention_through_pandoc(self) -> None:
         document = MarkdownToADFConverter(PandocRunner()).convert(
-            '<span cflsync-type="mention" cflsync-id="account-123" cflsync-access-level="SITE" '
-            'cflsync-user-type="DEFAULT">@Example User</span>\n')
+            '<span cfl-type="mention" cfl-id="account-123" cfl-access-level="SITE" '
+            'cfl-user-type="DEFAULT">@Example User</span>\n')
 
         self.assertEqual(
             document["content"][0], {
@@ -583,16 +582,15 @@ class TestMarkdownToADFConverter(unittest.TestCase):
 
     def test_rejects_a_mention_without_an_account_id(self) -> None:
         with self.assertRaisesRegex(ConversionError, "non-empty account ID"):
-            MarkdownToADFConverter(PandocRunner()).convert('<span cflsync-type="mention">@Example User</span>\n')
+            MarkdownToADFConverter(PandocRunner()).convert('<span cfl-type="mention">@Example User</span>\n')
 
     def test_rejects_a_date_with_an_invalid_symbolic_time_zone(self) -> None:
         with self.assertRaisesRegex(ConversionError, "YYYY-MM-DD"):
-            MarkdownToADFConverter(PandocRunner()).convert('<span cflsync-type="date">2026-04-01[Not/AZone]</span>\n')
+            MarkdownToADFConverter(PandocRunner()).convert('<span cfl-type="date">2026-04-01[Not/AZone]</span>\n')
 
     def test_rejects_a_status_with_an_unsupported_css_color(self) -> None:
         with self.assertRaisesRegex(ConversionError, "unsupported attributes"):
-            MarkdownToADFConverter(
-                PandocRunner()).convert('<span cflsync-type="status" style="background-color: orange">Done</span>\n')
+            MarkdownToADFConverter(PandocRunner()).convert('<span cfl-type="status" style="background-color: orange">Done</span>\n')
 
     def test_rejects_a_span_that_is_not_an_emoji(self) -> None:
         pandoc = RecordingPandoc(

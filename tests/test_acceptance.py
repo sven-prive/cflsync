@@ -371,7 +371,7 @@ class TestRecordedAcceptanceWorkflow(unittest.TestCase):
             self.assertIn("# Renamed acceptance page", markdown)
             self.assertIn("## An L2 Heading", markdown)
             self.assertIn("[link](https://example.test)", markdown)
-            self.assertIn('cflsync-type="status"', markdown)
+            self.assertIn('cfl-type="status"', markdown)
             self.assertIn("atlas_doc_format", markdown)
             self.assertIn("<table", markdown)
             self.assertEqual((directory / "_attachments" / "diagram.png").read_bytes(), b"fixture image")

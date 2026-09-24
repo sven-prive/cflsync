@@ -520,7 +520,7 @@ class TestADFToMarkdownConverter(unittest.TestCase):
             pandoc.pandoc["blocks"][0]["c"], [
                 {
                     "t": "RawInline",
-                    "c": ["html", '<span cflsync-type="date">']}, {
+                    "c": ["html", '<span cfl-type="date">']}, {
                         "t": "Str",
                         "c": expected}, {
                             "t": "RawInline",
@@ -542,7 +542,7 @@ class TestADFToMarkdownConverter(unittest.TestCase):
             pandoc.pandoc["blocks"][0]["c"], [
                 {
                     "t": "RawInline",
-                    "c": ["html", '<span cflsync-type="status" style="background-color: gray">']}, {
+                    "c": ["html", '<span cfl-type="status" style="background-color: gray">']}, {
                         "t": "Str",
                         "c": "Done"}, {
                             "t": "Space"}, {
@@ -575,19 +575,16 @@ class TestADFToMarkdownConverter(unittest.TestCase):
         self.assertEqual(
             pandoc.pandoc["blocks"][0]["c"], [
                 {
-                    "t":
-                    "RawInline",
-                    "c": [
-                        "html",
-                        '<span cflsync-type="mention" cflsync-id="account-123" cflsync-access-level="SITE" cflsync-user-type="DEFAULT">'
-                    ]}, {
-                        "t": "Str",
-                        "c": "@Example"}, {
-                            "t": "Space"}, {
-                                "t": "Str",
-                                "c": "User"}, {
-                                    "t": "RawInline",
-                                    "c": ["html", "</span>"]}])
+                    "t": "RawInline",
+                    "c": ["html", '<span cfl-type="mention" cfl-id="account-123" cfl-access-level="SITE" cfl-user-type="DEFAULT">']
+                }, {
+                    "t": "Str",
+                    "c": "@Example"}, {
+                        "t": "Space"}, {
+                            "t": "Str",
+                            "c": "User"}, {
+                                "t": "RawInline",
+                                "c": ["html", "</span>"]}])
 
     def test_retains_a_custom_emoji_without_unicode_text(self) -> None:
         pandoc = RecordingPandoc()

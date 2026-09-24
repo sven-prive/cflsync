@@ -533,8 +533,8 @@ class ADFToMarkdownConverter:
         if not isinstance(account_id, str) or not account_id:
             return None
 
-        attributes = [f'cflsync-type="mention"', f'cflsync-id="{escape(account_id, quote=True)}"', ]
-        for adf_name, html_name in (("accessLevel", "cflsync-access-level"), ("userType", "cflsync-user-type")):
+        attributes = [f'cfl-type="mention"', f'cfl-id="{escape(account_id, quote=True)}"', ]
+        for adf_name, html_name in (("accessLevel", "cfl-access-level"), ("userType", "cfl-user-type")):
             value = attrs.get(adf_name)
             if value is None:
                 continue
@@ -580,7 +580,7 @@ class ADFToMarkdownConverter:
         return [
             {
                 "t": "RawInline",
-                "c": ["html", '<span cflsync-type="date">']}, *inlines, {
+                "c": ["html", '<span cfl-type="date">']}, *inlines, {
                     "t": "RawInline",
                     "c": ["html", "</span>"]}, ]
 
@@ -606,7 +606,7 @@ class ADFToMarkdownConverter:
         return [
             {
                 "t": "RawInline",
-                "c": ["html", f'<span cflsync-type="status" style="background-color: {background}">']}, *inlines, {
+                "c": ["html", f'<span cfl-type="status" style="background-color: {background}">']}, *inlines, {
                     "t": "RawInline",
                     "c": ["html", "</span>"]}, ]
 
@@ -1202,7 +1202,7 @@ class MarkdownToADFConverter:
                     raise ConversionError("raw HTML cflsync span has an invalid closing tag")
 
                 text = self._plain_text(text_inlines)
-                span_type = attributes.get("cflsync-type")
+                span_type = attributes.get("cfl-type")
                 if span_type == "status":
                     self._convert_status_span(attributes, text, inlines)
                     return index + 1
@@ -1262,7 +1262,7 @@ class MarkdownToADFConverter:
         return values
 
     def _convert_status_span(self, attributes, text, inlines):
-        if set(attributes) != {"cflsync-type", "style"} or not text:
+        if set(attributes) != {"cfl-type", "style"} or not text:
             raise ConversionError("status span has unsupported attributes")
 
         background = attributes["style"]
@@ -1277,16 +1277,16 @@ class MarkdownToADFConverter:
         inlines.append({"type": "status", "attrs": {"text": text, "color": color}})
 
     def _convert_date_span(self, attributes, text, inlines):
-        if attributes.get("cflsync-type") != "date":
+        if attributes.get("cfl-type") != "date":
             raise ConversionError("date span has unsupported attributes")
 
-        if "cflsync-timestamp" in attributes:
-            if set(attributes) != {"cflsync-type", "cflsync-timestamp"} or not attributes["cflsync-timestamp"].isdigit():
+        if "cfl-timestamp" in attributes:
+            if set(attributes) != {"cfl-type", "cfl-timestamp"} or not attributes["cfl-timestamp"].isdigit():
                 raise ConversionError("date span has unsupported attributes")
 
-            timestamp = attributes["cflsync-timestamp"]
+            timestamp = attributes["cfl-timestamp"]
         else:
-            if set(attributes) != {"cflsync-type"}:
+            if set(attributes) != {"cfl-type"}:
                 raise ConversionError("date span has unsupported attributes")
 
             timestamp = _date_timestamp(text)
@@ -1296,19 +1296,19 @@ class MarkdownToADFConverter:
         inlines.append({"type": "date", "attrs": {"timestamp": timestamp}})
 
     def _convert_mention_span(self, attributes, text, inlines):
-        allowed = {"cflsync-type", "cflsync-id", "cflsync-access-level", "cflsync-user-type", }
-        if not attributes.get("cflsync-id"):
+        allowed = {"cfl-type", "cfl-id", "cfl-access-level", "cfl-user-type", }
+        if not attributes.get("cfl-id"):
             raise ConversionError("mention span needs a non-empty account ID")
 
-        if not {"cflsync-type", "cflsync-id"} <= set(attributes) or not set(attributes) <= allowed:
+        if not {"cfl-type", "cfl-id"} <= set(attributes) or not set(attributes) <= allowed:
             raise ConversionError("mention span has unsupported attributes")
 
-        account_id = attributes["cflsync-id"]
+        account_id = attributes["cfl-id"]
         mention_attrs = {"id": account_id}
         if text:
             mention_attrs["text"] = text
 
-        for html_name, adf_name in (("cflsync-access-level", "accessLevel"), ("cflsync-user-type", "userType")):
+        for html_name, adf_name in (("cfl-access-level", "accessLevel"), ("cfl-user-type", "userType")):
             if html_name in attributes:
                 mention_attrs[adf_name] = attributes[html_name]
 

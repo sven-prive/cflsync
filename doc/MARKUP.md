@@ -84,17 +84,17 @@ be edited, but their required attributes must remain intact:
 - Change a date span's `YYYY-MM-DD[Region/City]` text. The symbolic time zone
   makes the date deterministic across contributors. A date without `[Region/City]`
   uses the local machine time zone on push.
-- A mention span needs its non-empty `cflsync-id`; preserve its other metadata
+- A mention span needs its non-empty `cfl-id`; preserve its other metadata
   unless the corresponding Confluence account values are known.
 
 These are cflsync-specific HTML forms rather than ordinary Markdown syntax.
 For example, a pulled date is written as:
 
 ```html
-<span cflsync-type="date">2026-04-01[Europe/Brussels]</span>
+<span cfl-type="date">2026-04-01[Europe/Brussels]</span>
 ```
 
-Legacy date spans with `cflsync-timestamp` remain supported and preserve that
+Date spans with `cfl-timestamp` preserve that
 timestamp unchanged.
 
 ### Other macros
