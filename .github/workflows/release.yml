@@ -38,24 +38,33 @@ jobs:
       - name: Build zipapp
         run: uv run python packaging/scripts/build_zipapp.py
 
+      - name: Build Windows release archives
+        run: |
+          uv run python packaging/scripts/build_windows_zip.py x64
+          uv run python packaging/scripts/build_windows_zip.py arm64
+
       - name: Assemble release archive and checksum
         id: package
         shell: bash
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          archive="dist/cflsync-${VERSION}.zip"
-          checksum="${archive}.sha256"
-          zip --junk-paths "$archive" dist/cflsync.pyz packaging/scoop/cflsync.cmd
-          digest="$(sha256sum "$archive")"
-          printf '%s  %s\n' "${digest%% *}" "$(basename "$archive")" > "$checksum"
-          echo "archive=$archive" >> "$GITHUB_OUTPUT"
-          echo "checksum=$checksum" >> "$GITHUB_OUTPUT"
+          archives=(
+            "dist/cflsync-${VERSION}-windows-x64.zip"
+            "dist/cflsync-${VERSION}-windows-arm64.zip"
+          )
+          assets=()
+          for archive in "${archives[@]}"; do
+            checksum="${archive}.sha256"
+            digest="$(sha256sum "$archive")"
+            printf '%s  %s\n' "${digest%% *}" "$(basename "$archive")" > "$checksum"
+            assets+=("$archive" "$checksum")
+          done
+          echo "assets=${assets[*]}" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub Release
         env:
-          ARCHIVE: ${{ steps.package.outputs.archive }}
-          CHECKSUM: ${{ steps.package.outputs.checksum }}
+          ASSETS: ${{ steps.package.outputs.assets }}
           GH_TOKEN: ${{ github.token }}
           RELEASE_NOTES: |
             This release contains Object Code under the Mozilla Public License, version 2.0.
@@ -64,4 +73,6 @@ jobs:
             under the [Mozilla Public License 2.0](https://github.com/sven-prive/cflsync/blob/main/LICENSE.md).
           TAG: ${{ github.ref_name }}
           VERSION: ${{ steps.version.outputs.version }}
-        run: gh release create "$TAG" "$ARCHIVE" "$CHECKSUM" --title "cflsync $VERSION" --notes "$RELEASE_NOTES"
+        run: |
+          read -r -a assets <<< "$ASSETS"
+          gh release create "$TAG" "${assets[@]}" --title "cflsync $VERSION" --notes "$RELEASE_NOTES"
