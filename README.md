@@ -5,22 +5,23 @@ local GitHub Flavored Markdown (GFM) page directories and their attachments.
 The goal is local authoring of wiki pages in markdown format, using Confluence
 as publishing platform rather than authoring environment.
 
-## Documentation
-
-- [Design](doc/DESIGN.md): implementation constraints, scope, and architectural
-  decisions.
-- [Specification](doc/SPEC.md): command behavior, local storage, and
-  synchronization rules.
-- [Mapping](doc/MAPPING.md): `atlas_doc_format` to Pandoc AST mapping and
-  opaque retention strategy.
-
-## Prerequisites
-
-- Python 3.11 or later.
-- [uv](https://docs.astral.sh/uv/) for Python dependency management.
-- Pandoc for markup conversion.
-
 ## Installation
+
+### Windows
+
+Install from the personal [scoop](https://scoop.sh) bucket:
+
+```console
+scoop bucket add sven https://github.com/sven-prive/scoop
+scoop install cflsync
+```
+
+The package bundles CPython and installs Pandoc as a Scoop dependency, so no
+separate Python installation is required.
+
+### Other operating systems (Linux, MacOS...)
+
+Install using [uv](https://docs.astral.sh/uv/).
 
 Install `cflsync` as a standalone command in its own environment:
 
@@ -59,10 +60,36 @@ rename pages.
 Use `cflsync --help` for top-level help, `cflsync page --help` for page-command
 help, and `cflsync page COMMAND --help` for a command's arguments.
 
+## Prerequisites
+
+- Python 3.11 or later.
+- [Pandoc](https://pandoc.org/) for markup conversion.
+
+## Documentation
+
+- [Writing pages](doc/MARKUP.md): supported Markdown for Confluence pages.
+
 ## Development
 
-YAPF is the project formatter, set up to align closely with PEP-8 style. Apply
-formatting before committing changes:
+### Implementation documentation
+
+- [Design](doc/DESIGN.md): implementation constraints, scope, and architectural
+  decisions.
+- [Specification](doc/SPEC.md): command behavior, local storage, and
+  synchronization rules.
+- [Mapping](doc/MAPPING.md): `atlas_doc_format` to Pandoc AST mapping and
+  opaque retention strategy.
+
+### Development tooling
+
+Required tooling:
+
+- [uv](https://docs.astral.sh/uv/) manages the development environment and runs project commands.
+- [YAPF](https://github.com/google/yapf/) formats Python code through uv's `dev` dependency group.
+- [Zuban](https://docs.zubanls.com/) performs static type checking.
+
+YAPF is configured to align closely with PEP-8 style. Apply formatting before
+committing changes:
 
 ```console
 uv run --group dev python -m yapf --recursive --in-place cflsync tests packaging/scripts
@@ -74,13 +101,19 @@ Check formatting without modifying files:
 uv run --group dev python -m yapf --recursive --diff cflsync tests packaging/scripts
 ```
 
+Check the application source with Zuban:
+
+```console
+zuban check cflsync
+```
+
 Build the self-contained zipapp distribution artifact:
 
 ```console
 uv run python packaging/scripts/build_zipapp.py
 ```
 
-## Testing
+### Testing
 
 Run the complete test suite with:
 
@@ -92,28 +125,6 @@ The automated suite uses only local filesystem fixtures and recorded HTTP
 transports. Importing the `tests` package blocks address resolution and socket
 connections, so an accidental live request fails instead of reaching a real
 site.
-
-### Manual acceptance check
-
-Live acceptance against Confluence Cloud is a manual operation and is never
-part of the automated suite. Run it against a disposable page in a scratch
-space, using a workarea outside the repository:
-
-```console
-cflsync auth -p acceptance
-mkdir /tmp/cflsync-acceptance && cd /tmp/cflsync-acceptance
-cflsync init -p acceptance
-cflsync page create PARENT_PAGE_ID "cflsync acceptance"
-cflsync page status "cflsync acceptance"
-$EDITOR "cflsync acceptance/page.md"
-cflsync page push "cflsync acceptance"
-cflsync page pull "cflsync acceptance"
-cflsync page status "cflsync acceptance"
-```
-
-The check passes when the edit appears on the remote page, the final status
-reports both sides unchanged, and the page history contains no version other
-than those the commands above produced. Delete the page afterwards.
 
 ## License
 
