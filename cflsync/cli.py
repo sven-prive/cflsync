@@ -350,7 +350,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv
 
-    parser = ArgumentParser(prog=Path(argv[0]).name)
+    parser = ArgumentParser(prog="cflsync")
     parser.set_defaults(command=lambda args: _print_usage(parser))
     subparsers = parser.add_subparsers(title="commands", metavar="command")
     AuthCommand().configure(subparsers)

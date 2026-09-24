@@ -59,4 +59,4 @@ jobs:
       # Type checking runs out-of-band: zuban is a developer tool installed
       # separately, deliberately not a project dependency.
       - name: Check formatting
-        run: uv run --group dev python -m yapf --recursive --diff cflsync tests
+        run: uv run --group dev python -m yapf --recursive --diff cflsync tests packaging/scripts

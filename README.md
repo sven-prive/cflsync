@@ -65,13 +65,19 @@ YAPF is the project formatter, set up to align closely with PEP-8 style. Apply
 formatting before committing changes:
 
 ```console
-uv run --group dev python -m yapf --recursive --in-place cflsync tests
+uv run --group dev python -m yapf --recursive --in-place cflsync tests packaging/scripts
 ```
 
 Check formatting without modifying files:
 
 ```console
-uv run --group dev python -m yapf --recursive --diff cflsync tests
+uv run --group dev python -m yapf --recursive --diff cflsync tests packaging/scripts
+```
+
+Build the self-contained zipapp distribution artifact:
+
+```console
+uv run python packaging/scripts/build_zipapp.py
 ```
 
 ## Testing
