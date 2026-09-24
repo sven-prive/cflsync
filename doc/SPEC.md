@@ -5,7 +5,7 @@
 ```text
 cflsync auth [-p PROFILE] [--list | --delete]
 cflsync init [-p PROFILE]
-cflsync page create PARENT_PAGE_ID TITLE
+cflsync page create PARENT_PAGE_REF TITLE
 cflsync page pull [-f | --force] PAGE_REF
 cflsync page push [-f | --force] PAGE_REF
 cflsync page status PAGE_REF
@@ -17,16 +17,17 @@ neither resolves nor records a Confluence page. `page pull` resolves
 push` finds the identified page's local state at
 `.cflsync/cache/<page-id>.json`.
 
-`page create PARENT_PAGE_ID TITLE` creates an empty child page remotely, then
-runs the equivalent of `page pull` for its returned ID. It has no offline mode,
-so each local page begins with Confluence-authoritative metadata. Commands
-locate a workarea by walking upward to a directory containing `.cflsync/profile`.
+`page create PARENT_PAGE_REF TITLE` resolves `PARENT_PAGE_REF`, creates an
+empty child page remotely, then runs the equivalent of `page pull` for its
+returned ID. It has no offline mode, so each local page begins with
+Confluence-authoritative metadata. Commands locate a workarea by walking upward
+to a directory containing `.cflsync/profile`.
 
 ## Page references
 
-`page pull`, `page push`, and `page status` accept one `PAGE_REF`: a numeric
-page ID, page title, local GFM file, or local page directory. The resolver
-classifies the argument in this order:
+`page create`, `page pull`, `page push`, and `page status` accept a page
+reference: a numeric page ID, page title, local GFM file, or local page
+directory. The resolver classifies the argument in this order:
 
 1. An existing filesystem path is a local reference. A file must be managed
    `page.md`; a directory must contain that file. Its cache entry supplies the

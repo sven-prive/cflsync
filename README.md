@@ -39,7 +39,7 @@ a checkout as `uv run python -m cflsync`.
 ```text
 cflsync auth [-p PROFILE] [--list | --delete]
 cflsync init [-p PROFILE]
-cflsync page create PARENT_PAGE_ID TITLE
+cflsync page create PARENT_PAGE_REF TITLE
 cflsync page pull [-f | --force] PAGE_REF
 cflsync page push [-f | --force] PAGE_REF
 cflsync page status PAGE_REF

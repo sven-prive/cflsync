@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 from cflsync import APIClient, PageState, Profile, SyncError
 from cflsync.cli import PageCreateCommand
-from tests.support import MockResponse, MockTransport, temporary_workarea
+from tests.support import MockResponse, MockTransport, example_page_state, temporary_workarea
 from tests.test_api_operations import attachment_fixture, page_fixture
 
 
@@ -27,14 +27,14 @@ def created_page_fixture(page_id: str = "123456", title: str = "New page") -> di
 
 class TestPageCreate(unittest.TestCase):
 
-    def _create(self, workarea, responses, title="New page", parent_page_id="456789"):
+    def _create(self, workarea, responses, title="New page", parent_page_ref="456789"):
         transport = MockTransport(responses)
         client = APIClient("example.atlassian.net", "user", "token", transport=transport)
         config = SimpleNamespace(profiles={workarea.profile: Profile("example.atlassian.net", "user", "token")})
         with patch("cflsync.cli.Path.cwd", return_value=workarea.root_dir):
             with patch("cflsync.cli.Config.find", return_value=config):
                 with patch("cflsync.cli.APIClient", return_value=client):
-                    status = PageCreateCommand().run(parent_page_id, title)
+                    status = PageCreateCommand().run(parent_page_ref, title)
 
         return transport, status
 
@@ -47,15 +47,14 @@ class TestPageCreate(unittest.TestCase):
             MockResponse.from_json(page),
             MockResponse.from_json({"results": attachments}), *[MockResponse(200, {}, b"PNG") for attachment in attachments], ]
 
-    def test_rejects_invalid_parent_ids_and_titles_before_any_request(self) -> None:
-        cases = [("not-a-page", "New page"), ("456789", ""), ("456789", "  "), ("456789", "two\nlines"), ("456789", " padded ")]
-        for parent_page_id, title in cases:
-            with self.subTest(parent_page_id=parent_page_id, title=title):
+    def test_rejects_invalid_titles_before_any_request(self) -> None:
+        for title in ("", "  ", "two\nlines", " padded "):
+            with self.subTest(title=title):
                 transport = MockTransport([])
                 client = APIClient("example.atlassian.net", "user", "token", transport=transport)
                 with patch("cflsync.cli.APIClient", return_value=client):
                     with self.assertRaises(SyncError):
-                        PageCreateCommand().run(parent_page_id, title)
+                        PageCreateCommand().run("456789", title)
 
                 self.assertEqual(transport.requests, [])
 
@@ -63,7 +62,10 @@ class TestPageCreate(unittest.TestCase):
         with temporary_workarea() as workarea:
             page = created_page_fixture()
             parent = page_fixture("456789", "Parent page")
-            responses = [MockResponse.from_json(parent), MockResponse.from_json(page), *self._pull_responses(page)]
+            responses = [
+                MockResponse.from_json(parent),
+                MockResponse.from_json(parent),
+                MockResponse.from_json(page), *self._pull_responses(page)]
 
             transport, status = self._create(workarea, responses)
 
@@ -73,7 +75,7 @@ class TestPageCreate(unittest.TestCase):
             self.assertEqual(state.page.title, "New page")
             self.assertEqual((directory / "page.md").read_text(), "# New page\n")
             self.assertEqual((directory / "_attachments/diagram.png").read_bytes(), b"PNG")
-            create_request = transport.requests[1]
+            create_request = transport.requests[2]
             self.assertEqual(create_request.method, "POST")
             self.assertEqual(create_request.path, "/pages")
             body = json.loads(create_request.body)
@@ -84,7 +86,10 @@ class TestPageCreate(unittest.TestCase):
     def test_failed_creation_leaves_no_local_state(self) -> None:
         with temporary_workarea() as workarea:
             parent = page_fixture("456789", "Parent page")
-            responses = [MockResponse.from_json(parent), MockResponse.from_json({"message": "title already exists"}, 400)]
+            responses = [
+                MockResponse.from_json(parent),
+                MockResponse.from_json(parent),
+                MockResponse.from_json({"message": "title already exists"}, 400)]
 
             with self.assertRaises(SyncError):
                 self._create(workarea, responses)
@@ -92,11 +97,44 @@ class TestPageCreate(unittest.TestCase):
             self.assertEqual(list(workarea.page_state_paths()), [])
             self.assertEqual(list(workarea.root_dir.glob("*")), [workarea.root_dir / ".cflsync"])
 
+    def test_resolves_a_parent_title_before_creation(self) -> None:
+        with temporary_workarea() as workarea:
+            page = created_page_fixture()
+            parent = page_fixture("456789", "Parent page")
+            responses = [
+                MockResponse.from_json({"results": [parent]}),
+                MockResponse.from_json(parent),
+                MockResponse.from_json(page), *self._pull_responses(page), ]
+
+            transport, status = self._create(workarea, responses, parent_page_ref="Parent page")
+
+            self.assertEqual(status, 0)
+            self.assertEqual(transport.requests[0].parameters["title"], "Parent page")
+            self.assertEqual(json.loads(transport.requests[2].body)["parentId"], "456789")
+
+    def test_resolves_a_managed_parent_directory_before_creation(self) -> None:
+        with temporary_workarea() as workarea:
+            parent = page_fixture("456789", "Parent page")
+            parent_state = example_page_state("456789", title="Parent page", directory="Parent page")
+            parent_state.save(workarea.cache_path(parent_state.page.id))
+            parent_directory = workarea.root_dir / parent_state.page.directory
+            parent_directory.mkdir()
+            (parent_directory / "page.md").write_text("# Parent page\n", encoding="utf-8")
+            page = created_page_fixture()
+            responses = [MockResponse.from_json(parent), MockResponse.from_json(page), *self._pull_responses(page)]
+
+            transport, status = self._create(workarea, responses, parent_page_ref=str(parent_directory))
+
+            self.assertEqual(status, 0)
+            self.assertEqual(transport.requests[0].path, "/pages/456789")
+            self.assertEqual(json.loads(transport.requests[1].body)["parentId"], "456789")
+
     def test_failed_follow_up_pull_reports_the_created_page(self) -> None:
         with temporary_workarea() as workarea:
             page = created_page_fixture()
             parent = page_fixture("456789", "Parent page")
             responses = [
+                MockResponse.from_json(parent),
                 MockResponse.from_json(parent),
                 MockResponse.from_json(page),
                 MockResponse.from_json(page),

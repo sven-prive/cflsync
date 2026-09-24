@@ -74,25 +74,23 @@ class PageCreateCommand:
 
     def configure(self, subparsers: _SubParsersAction[ArgumentParser]) -> None:
         page_create_parser = subparsers.add_parser("create", help="create an empty Confluence Cloud child page")
-        page_create_parser.add_argument("parent_page_id", help="parent Confluence page ID")
+        page_create_parser.add_argument("parent_page_ref", help="parent page ID, title, page.md file, or page directory")
         page_create_parser.add_argument("title", help="title for the new page")
         page_create_parser.set_defaults(command=self)
 
     def __call__(self, args: Namespace) -> int:
-        return self.run(args.parent_page_id, args.title)
+        return self.run(args.parent_page_ref, args.title)
 
-    def run(self, parent_page_id: str, title: str) -> int:
-        if not parent_page_id.isdigit():
-            raise SyncError(f"parent page ID '{parent_page_id}' must be a numeric identifier")
-
+    def run(self, parent_page_ref: str, title: str) -> int:
         if not title.strip() or title.strip() != title or "\n" in title or "\r" in title or "\t" in title:
             raise SyncError("page title must be non-empty single-line text without surrounding whitespace")
 
         try:
             workarea, api = _open_workarea()
-            parent = api.get_page(parent_page_id)
+            reference = PageRef.resolve(parent_page_ref, workarea, api)
+            parent = api.get_page(reference.page_id)
             if parent.space_id is None:
-                raise SyncError(f"parent page '{parent_page_id}' reports no space")
+                raise SyncError(f"parent page '{reference.page_id}' reports no space")
 
             page = api.create_page(parent.space_id, parent.id, title)
         except (OSError, UnicodeError) as error:
