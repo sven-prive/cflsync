@@ -73,16 +73,15 @@ class TestADFToMarkdownConverter(unittest.TestCase):
                     "type": "textColor",
                     "attrs": {
                         "color": "#123456"}}, {
-                            "type": "underline"}, {
-                                "type": "code",
-                                "extra": True}, {
-                                    "type": "strong",
-                                    "attrs": {
-                                        "future": 1}}, {
-                                            "type": "link",
-                                            "attrs": {
-                                                "href": "https://example.test",
-                                                "future": 2}}, ]}
+                            "type": "code",
+                            "extra": True}, {
+                                "type": "strong",
+                                "attrs": {
+                                    "future": 1}}, {
+                                        "type": "link",
+                                        "attrs": {
+                                            "href": "https://example.test",
+                                            "future": 2}}, ]}
         document = {
             "type": "doc",
             "version": 1,
@@ -101,6 +100,37 @@ class TestADFToMarkdownConverter(unittest.TestCase):
         self.assertEqual(strong["t"], "Strong")
         self.assertEqual(strong["c"], [{"t": "Code", "c": [["", [], []], "Synthetic"]}])
         self.assertEqual(inlines[1], {"t": "LineBreak"})
+
+    def test_maps_an_underline_mark_to_raw_html(self) -> None:
+        pandoc = RecordingPandoc()
+        document = {
+            "type":
+            "doc",
+            "version":
+            1,
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [{
+                        "type": "text",
+                        "text": "Synthetic",
+                        "marks": [{
+                            "type": "underline"}, {
+                                "type": "strong"}]}]}]}
+
+        ADFToMarkdownConverter(pandoc).convert(document)
+
+        self.assertEqual(
+            pandoc.pandoc["blocks"][0]["c"], [
+                {
+                    "t": "RawInline",
+                    "c": ["html", "<u>"]}, {
+                        "t": "Strong",
+                        "c": [{
+                            "t": "Str",
+                            "c": "Synthetic"}]}, {
+                                "t": "RawInline",
+                                "c": ["html", "</u>"]}])
 
     def test_structures_and_invalid_required_values_retain_original_json(self) -> None:
         paragraph = {"type": "paragraph", "content": [{"type": "text", "text": "Cell"}]}

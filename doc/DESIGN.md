@@ -64,7 +64,8 @@ the coordinator supplies an attachment manifest as `(filename, ID)` pairs.
 
 Conversion is intentionally lossy. Supported nodes become readable GFM using
 the fields needed by their mapping; unrelated metadata, extra attributes, and
-unsupported formatting marks are ignored. Required values and content shapes
+unsupported formatting marks are ignored. Underline uses raw HTML `<u>` inline
+pairs because GFM has no underline syntax. Required values and content shapes
 are still checked at the ADF input boundary.
 
 Unsupported structures, such as macros, are retained as `atlas_doc_format`

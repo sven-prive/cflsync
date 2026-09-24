@@ -651,7 +651,7 @@ class ADFToMarkdownConverter:
                 return None
 
             mark_type = mark["type"]
-            if mark_type not in {"strong", "em", "strike", "code", "link"}:
+            if mark_type not in {"strong", "em", "strike", "code", "link", "underline"}:
                 continue
 
             if mark_type in values:
@@ -668,6 +668,9 @@ class ADFToMarkdownConverter:
         for mark_type, pandoc_type in (("strike", "Strikeout"), ("em", "Emph"), ("strong", "Strong")):
             if mark_type in values:
                 result = [{"t": pandoc_type, "c": result}]
+
+        if "underline" in values:
+            result = [{"t": "RawInline", "c": ["html", "<u>"]}, *result, {"t": "RawInline", "c": ["html", "</u>"]}, ]
 
         if "link" in values:
             return self._convert_link_mark(result, values["link"])
@@ -1222,6 +1225,29 @@ class MarkdownToADFConverter:
 
         raise ConversionError("raw HTML cflsync span is not closed")
 
+    def _convert_underline(self, pandoc_inlines, index, inlines, marks):
+        if any(mark["type"] == "underline" for mark in marks):
+            raise ConversionError("Pandoc inline has duplicate 'underline' marks")
+
+        content = []
+        index += 1
+        while index < len(pandoc_inlines):
+            pandoc_inline = pandoc_inlines[index]
+            if not isinstance(pandoc_inline, Mapping):
+                raise ConversionError("Pandoc inline must be an object")
+
+            if pandoc_inline.get("t") == "RawInline" and self._raw_html(pandoc_inline) == "</u>":
+                if not content:
+                    raise ConversionError("Pandoc underline content must not be empty")
+
+                self._convert_inline_nodes_into(content, inlines, [*marks, {"type": "underline"}])
+                return index + 1
+
+            content.append(pandoc_inline)
+            index += 1
+
+        raise ConversionError("Pandoc underline is not closed")
+
     def _raw_html(self, pandoc_inline):
         if not self._has_fields(pandoc_inline, {"t", "c"}):
             raise ConversionError("Pandoc raw inline has unsupported fields")
@@ -1416,7 +1442,10 @@ class MarkdownToADFConverter:
                 raise ConversionError("Pandoc inline must be an object")
 
             if pandoc_inline.get("t") == "RawInline":
-                index = self._convert_raw_span(pandoc_inlines, index, inlines, marks)
+                if self._raw_html(pandoc_inline) == "<u>":
+                    index = self._convert_underline(pandoc_inlines, index, inlines, marks)
+                else:
+                    index = self._convert_raw_span(pandoc_inlines, index, inlines, marks)
                 continue
 
             self._convert_inline(pandoc_inline, inlines, marks)

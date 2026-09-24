@@ -458,6 +458,68 @@ class TestMarkdownToADFConverter(unittest.TestCase):
                                     "type": "text",
                                     "text": " after"}]})
 
+    def test_maps_raw_html_underline_through_pandoc(self) -> None:
+        document = MarkdownToADFConverter(PandocRunner()).convert('<u>**Underlined and bold**</u>\n')
+
+        self.assertEqual(
+            document["content"][0], {
+                "type": "paragraph",
+                "content": [{
+                    "type": "text",
+                    "text": "Underlined and bold",
+                    "marks": [{
+                        "type": "underline"}, {
+                            "type": "strong"}]}]})
+
+    def test_round_trips_an_underline(self) -> None:
+        source = {
+            "type":
+            "doc",
+            "version":
+            1,
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content":
+                    [{
+                        "type": "text",
+                        "text": "Underlined and bold",
+                        "marks": [{
+                            "type": "underline"}, {
+                                "type": "strong"}]}]}]}
+        pandoc = PandocRunner()
+        markdown = ADFToMarkdownConverter(pandoc).convert(source)
+
+        self.assertEqual(markdown, '<u>**Underlined and bold**</u>\n')
+        self.assertEqual(MarkdownToADFConverter(pandoc).convert(markdown), source)
+
+    def test_round_trips_an_underlined_link(self) -> None:
+        source = {
+            "type":
+            "doc",
+            "version":
+            1,
+            "content": [
+                {
+                    "type":
+                    "paragraph",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Underlined link",
+                            "marks":
+                            [{
+                                "type": "link",
+                                "attrs": {
+                                    "href": "https://example.test",
+                                    "title": ""}}, {
+                                        "type": "underline"}]}]}]}
+        pandoc = PandocRunner()
+        markdown = ADFToMarkdownConverter(pandoc).convert(source)
+
+        self.assertEqual(markdown, '[<u>Underlined link</u>](https://example.test)\n')
+        self.assertEqual(MarkdownToADFConverter(pandoc).convert(markdown), source)
+
     def test_round_trips_a_status(self) -> None:
         source = {
             "type":
@@ -591,6 +653,10 @@ class TestMarkdownToADFConverter(unittest.TestCase):
     def test_rejects_a_status_with_an_unsupported_css_color(self) -> None:
         with self.assertRaisesRegex(ConversionError, "unsupported attributes"):
             MarkdownToADFConverter(PandocRunner()).convert('<span cfl-type="status" style="background-color: orange">Done</span>\n')
+
+    def test_rejects_an_unclosed_underline(self) -> None:
+        with self.assertRaisesRegex(ConversionError, "underline is not closed"):
+            MarkdownToADFConverter(PandocRunner()).convert('<u>text\n')
 
     def test_rejects_a_span_that_is_not_an_emoji(self) -> None:
         pandoc = RecordingPandoc(
