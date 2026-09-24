@@ -17,7 +17,7 @@ from unittest.mock import patch
 from cflsync import APIClient, PageState, Profile, SyncError
 from cflsync.cli import PagePullCommand, PagePushCommand
 from tests.support import MockResponse, MockTransport, temporary_workarea
-from tests.test_api_operations import attachment_fixture, page_fixture
+from tests.test_api_operations import attachment_fixture, page_fixture, user_fixture
 
 PULLED_MARKDOWN = "# Example page\n\nExample\n"
 
@@ -152,6 +152,27 @@ class TestPagePush(unittest.TestCase):
             # Format 1 hashes canonical GFM, rather than the platform-specific
             # bytes used to store the editable Markdown file.
             self.assertEqual(state.page.content_hash, hashlib.sha256(markdown.encode("utf-8")).hexdigest())
+
+    def test_resolves_a_mailto_link_to_a_mention_when_pushing(self) -> None:
+        with temporary_workarea() as workarea:
+            self._pull(workarea)
+            self._edit(workarea, "# Example page\n\n[Example User](mailto:example.user@example.test)\n")
+            responses = self._push_responses()
+            responses.insert(-1, MockResponse.from_json({"results": [{"user": user_fixture()}]}))
+
+            _, status, transport = self._push(workarea, responses)
+
+            document = json.loads(json.loads(transport.requests[-1].body)["body"]["value"])
+            lookup = transport.requests[-2]
+            self.assertEqual(status, 0)
+            self.assertEqual(lookup.path, "/search/user")
+            self.assertEqual(lookup.parameters, {"cql": 'user.fullname~"Example User"'})
+            self.assertEqual(
+                document["content"][0]["content"], [{
+                    "type": "mention",
+                    "attrs": {
+                        "id": "account-123",
+                        "text": "@Example User"}}])
 
     def test_uploads_changed_and_added_attachments(self) -> None:
         with temporary_workarea() as workarea:

@@ -213,13 +213,13 @@ class PagePushCommand:
 
             state = PageState.load(cache_path)
             page = api.get_page(reference.page_id)
-            self._push(workarea, page, state, cache_path, PandocRunner(), force)
+            self._push(workarea, page, state, cache_path, PandocRunner(), api, force)
         except (OSError, UnicodeError) as error:
             raise SyncError(f"cannot push page: {error}") from error
 
         return 0
 
-    def _push(self, workarea, page, state, cache_path, pandoc, force=False):
+    def _push(self, workarea, page, state, cache_path, pandoc, api, force=False):
         inspector = PageInspector(pandoc)
         directory = workarea.page_directory(state)
         attachments = page.attachments()
@@ -237,7 +237,7 @@ class PagePushCommand:
         self._upload_attachments(page, state, bodies, attachments)
         # Re-read the manifest so new uploads contribute their server-assigned file IDs.
         remote = {attachment.filename: attachment for attachment in page.attachments()}
-        document = self._convert(pandoc, markdown, page, bodies, remote)
+        document = self._convert(pandoc, markdown, page, bodies, remote, api)
         updated = page.update(json.dumps(document))
         self._delete_removed_attachments(state, bodies, remote)
 
@@ -279,11 +279,12 @@ class PagePushCommand:
             if name not in bodies and name in remote:
                 remote[name].delete()
 
-    def _convert(self, pandoc, markdown, page, bodies, remote):
+    def _convert(self, pandoc, markdown, page, bodies, remote, api):
         # Attachments without a server-assigned file ID cannot be referenced from ADF.
         media = MediaResolver(
             (name, remote[name].file_id) for name in bodies if name in remote and remote[name].file_id is not None)
-        return MarkdownToADFConverter(pandoc, media, f"contentId-{page.id}").convert(markdown, title=page.title)
+        return MarkdownToADFConverter(pandoc, media, f"contentId-{page.id}", api.find_user_by_name_and_email).convert(
+            markdown, title=page.title)
 
 
 class PageStatusCommand:

@@ -217,7 +217,10 @@ A mention becomes `<span cfl-type="mention" cfl-id="ACCOUNT-ID">TEXT</span>`.
 When present, `accessLevel` and `userType` become `cfl-access-level` and
 `cfl-user-type` attributes. `localId` is ignored. Reverse conversion parses
 the span through Pandoc and requires a non-empty account ID; it performs no
-name or email lookup. Plain Markdown has no mention-creation syntax.
+name or email lookup. On push only, `[Display name](mailto:address)` queries
+Confluence for that display name and emits a mention when exactly one result
+has the given email address. It otherwise remains an email link. Pull always
+uses the raw HTML span syntax.
 
 ADF has inline nodes such as `inlineCard`. A GFM fence is a block construct and cannot
 occupy a position inside a Pandoc `Para` or `Header`.

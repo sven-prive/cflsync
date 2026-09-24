@@ -177,6 +177,23 @@ class RemoteAttachment:
         self._client.make_request("DELETE", f"/attachments/{self.id}")
 
 
+class RemoteUser:
+    """The user fields used by mention resolution."""
+
+    def __init__(self, account_id: str, email: str | None, display_name: str | None) -> None:
+        self.account_id = account_id
+        self.email = email
+        self.display_name = display_name
+
+    @classmethod
+    def from_json(cls, value: Mapping[str, object]) -> "RemoteUser":
+        account_id = _required_string(value, "user", "accountId")
+        email = _optional_string(value, "email")
+        display_name = _optional_string(value, "displayName")
+
+        return cls(account_id, email, display_name)
+
+
 class APIClient:
     """Confluence Cloud API operations over a :class:`Transport`."""
 
@@ -251,7 +268,10 @@ class APIClient:
             headers: Mapping[str, str] | None = None,
             body: bytes | None = None) -> list[object]:
         """Send a paginated request and return its combined results."""
-        response = self.make_request(method, path, parameters, headers, body)
+        return self._make_paginated_request(self._transport, method, path, parameters, headers, body)
+
+    def _make_paginated_request(self, transport, method, path="", parameters=None, headers=None, body=None):
+        response = self._request(transport, method, path, parameters, headers, body)
         results: list[object] = []
 
         while True:
@@ -265,7 +285,7 @@ class APIClient:
             if next_path is None:
                 return results
 
-            next_path_transport = self._transport.clone("")
+            next_path_transport = transport.clone("")
             response = self._request(next_path_transport, "GET", next_path, headers=headers)
 
     def get_page(self, page_id: str) -> RemotePage:
@@ -285,6 +305,27 @@ class APIClient:
                 "include-version": "true"})
         pages = [RemotePage.from_json(self, _json_mapping(value, "page result")) for value in values]
         return [page for page in pages if page.title == title]
+
+    def find_users_by_name(self, display_name: str) -> list[RemoteUser]:
+        """Return users whose display name matches *display_name* through user-specific CQL."""
+        if not isinstance(display_name, str) or not display_name:
+            raise ValueError("display name must be a non-empty string")
+
+        transport = self._transport.clone("/wiki/rest/api")
+        values = self._make_paginated_request(
+            transport, "GET", "/search/user", parameters={"cql": f"user.fullname~{json.dumps(display_name)}"})
+        return [
+            RemoteUser.from_json(_required_object(_json_mapping(value, "user result"), "user result", "user")) for value in values]
+
+    def find_user_by_name_and_email(self, display_name: str, email: str) -> RemoteUser | None:
+        """Return the unique user matching *display_name* and *email*, if one exists."""
+        if not isinstance(email, str) or not email:
+            raise ValueError("email must be a non-empty string")
+
+        matches = [
+            user for user in self.find_users_by_name(display_name)
+            if user.email is not None and user.email.casefold() == email.casefold()]
+        return matches[0] if len(matches) == 1 else None
 
     def create_page(self, space_id: str, parent_id: str, title: str) -> RemotePage:
         """Create an empty child page in *space_id*."""

@@ -9,6 +9,7 @@
 import json
 import unittest
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
@@ -682,6 +683,44 @@ class TestMarkdownToADFConverter(unittest.TestCase):
                             "text": "@Example User",
                             "accessLevel": "SITE",
                             "userType": "DEFAULT"}}]})
+
+    def test_maps_a_mailto_link_to_a_uniquely_resolved_mention(self) -> None:
+        calls = []
+
+        def lookup(display_name, email):
+            calls.append((display_name, email))
+            return SimpleNamespace(account_id="account-123")
+
+        document = MarkdownToADFConverter(
+            PandocRunner(), mention_lookup=lookup).convert("[Example User](mailto:example.user@example.test)\n")
+
+        self.assertEqual(calls, [("Example User", "example.user@example.test")])
+        self.assertEqual(
+            document["content"][0], {
+                "type": "paragraph",
+                "content": [{
+                    "type": "mention",
+                    "attrs": {
+                        "id": "account-123",
+                        "text": "@Example User"}}]})
+
+    def test_keeps_a_mailto_link_when_mention_resolution_has_no_match(self) -> None:
+        document = MarkdownToADFConverter(
+            PandocRunner(), mention_lookup=lambda *_: None).convert("[Example User](mailto:example.user@example.test)\n")
+
+        self.assertEqual(
+            document["content"][0], {
+                "type":
+                "paragraph",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Example User",
+                        "marks": [{
+                            "type": "link",
+                            "attrs": {
+                                "href": "mailto:example.user@example.test",
+                                "title": ""}}]}]})
 
     def test_round_trips_a_mention(self) -> None:
         source = {

@@ -750,10 +750,11 @@ class ADFToMarkdownConverter:
 class MarkdownToADFConverter:
     """Convert the supported GFM subset to ADF."""
 
-    def __init__(self, pandoc, media=None, collection: str | None = None) -> None:
+    def __init__(self, pandoc, media=None, collection: str | None = None, mention_lookup=None) -> None:
         self._pandoc_runner = pandoc
         self._media = media
         self._collection = collection
+        self._mention_lookup = mention_lookup
 
     def convert(self, markdown: str, title: str | None = None) -> Mapping[str, object]:
         """Convert one GFM document to ADF, removing the page-title heading when given."""
@@ -1582,8 +1583,36 @@ class MarkdownToADFConverter:
         if not isinstance(href, str) or not href or not isinstance(title, str):
             raise ConversionError("Pandoc link has invalid target")
 
+        if self._convert_mailto_mention(href, title, content, inlines, marks):
+            return
+
         mark = {"type": "link", "attrs": {"href": href, "title": title}}
         self._convert_marked_content(content, inlines, marks, mark)
+
+    def _convert_mailto_mention(self, href, title, content, inlines, marks):
+        """Convert a plain ``mailto:`` link to an ADF mention when it resolves uniquely."""
+        if self._mention_lookup is None or marks or title or not href.lower().startswith("mailto:"):
+            return False
+
+        email = href[len("mailto:"):]
+        if not email or "?" in email or "#" in email:
+            return False
+
+        try:
+            display_name = self._plain_text(content)
+        except ConversionError:
+            return False
+
+        if not display_name:
+            return False
+
+        user = self._mention_lookup(display_name, email)
+        if user is None:
+            return False
+
+        text = display_name if display_name.startswith("@") else f"@{display_name}"
+        inlines.append({"type": "mention", "attrs": {"id": user.account_id, "text": text}})
+        return True
 
     def _convert_marked_inlines(self, pandoc_inline, inlines, marks, mark):
         value = pandoc_inline.get("c")

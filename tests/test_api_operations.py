@@ -9,7 +9,7 @@
 import json
 import unittest
 
-from cflsync import APIClient, RemoteAttachment, RemotePage
+from cflsync import APIClient, RemoteAttachment, RemotePage, RemoteUser
 from tests.support import MockResponse, MockTransport
 
 
@@ -38,6 +38,10 @@ def attachment_fixture() -> dict[str, object]:
             "download": "/download/attachments/123456/diagram.png?version=3"}}
 
 
+def user_fixture(account_id: str = "account-123", display_name: str | None = "Example User") -> dict[str, object]:
+    return {"accountId": account_id, "email": "example.user@example.test", "displayName": display_name, "accountType": "atlassian"}
+
+
 class TestRemoteModels(unittest.TestCase):
 
     def test_decodes_page_fields_needed_for_synchronization(self) -> None:
@@ -60,6 +64,13 @@ class TestRemoteModels(unittest.TestCase):
         self.assertEqual(attachment.version, 3)
         self.assertEqual(attachment.media_type, "image/png")
         self.assertEqual(attachment.download_path, "/download/attachments/123456/diagram.png?version=3")
+
+    def test_decodes_user_fields_needed_for_mention_resolution(self) -> None:
+        user = RemoteUser.from_json(user_fixture())
+
+        self.assertEqual(user.account_id, "account-123")
+        self.assertEqual(user.email, "example.user@example.test")
+        self.assertEqual(user.display_name, "Example User")
 
 
 class TestAPIClientPageOperations(unittest.TestCase):
@@ -112,6 +123,39 @@ class TestAPIClientPageOperations(unittest.TestCase):
                 "body": {
                     "representation": "atlas_doc_format",
                     "value": '{"type":"doc","version":1,"content":[]}'}})
+
+    def test_finds_users_by_display_name_through_the_v1_user_search(self) -> None:
+        first = user_fixture()
+        second = user_fixture("account-456", None)
+        transport = MockTransport([MockResponse.from_json({"results": [{"user": first}, {"user": second}]})])
+        client = APIClient("example.atlassian.net", "user", "token", transport=transport)
+
+        users = client.find_users_by_name('Example "User"')
+
+        self.assertEqual([user.account_id for user in users], ["account-123", "account-456"])
+        self.assertEqual(users[1].display_name, None)
+        self.assertEqual(transport.clone_prefixes, ["/wiki/rest/api"])
+        self.assertEqual(transport.requests[0].path, "/search/user")
+        self.assertEqual(transport.requests[0].parameters, {"cql": 'user.fullname~"Example \\"User\\""'})
+
+    def test_finds_a_user_only_when_name_and_email_have_one_match(self) -> None:
+        first = user_fixture()
+        second = user_fixture("account-456")
+        second["email"] = "other.user@example.test"
+        transport = MockTransport([MockResponse.from_json({"results": [{"user": first}, {"user": second}]})])
+        client = APIClient("example.atlassian.net", "user", "token", transport=transport)
+
+        user = client.find_user_by_name_and_email("Example User", "EXAMPLE.USER@example.test")
+
+        self.assertEqual(user.account_id, "account-123")
+
+    def test_does_not_choose_between_users_with_the_same_email(self) -> None:
+        first = user_fixture()
+        second = user_fixture("account-456")
+        transport = MockTransport([MockResponse.from_json({"results": [{"user": first}, {"user": second}]})])
+        client = APIClient("example.atlassian.net", "user", "token", transport=transport)
+
+        self.assertIsNone(client.find_user_by_name_and_email("Example User", "example.user@example.test"))
 
     def test_updates_a_page_with_the_next_version(self) -> None:
         updated = page_fixture()

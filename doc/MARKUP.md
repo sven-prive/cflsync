@@ -97,6 +97,19 @@ For example, a pulled date is written as:
 Date spans with `cfl-timestamp` preserve that
 timestamp unchanged.
 
+### Creating mentions
+
+On push, a plain email link can create a Confluence user mention:
+
+```markdown
+[Example User](mailto:example.user@example.com)
+```
+
+cflsync searches for `Example User` and emits a mention only when exactly one
+accessible result has the given email address. If no result or multiple results
+match, the link remains an ordinary email link. Pull always writes mentions as
+their `cfl-type="mention"` HTML spans.
+
 ### Other macros
 
 Confluence macro content without an ordinary Markdown representation is written
