@@ -41,7 +41,7 @@ the first and only level-one heading, and cannot rename the remote page. Use
 | Content | Markdown |
 | --- | --- |
 | Paragraphs and hard line breaks | Ordinary text; end a line with two spaces for a hard break. |
-| Emphasis | `*italic*`, `**bold**`, `~~strikethrough~~`, `` `code` ``, and `<u>underline</u>` |
+| Emphasis | `*italic*`, `**bold**`, `~~strikethrough~~`, `` `code` ``, `<u>underline</u>`, `<sub>subscript</sub>`, and `<sup>superscript</sup>` |
 | Links | `[label](https://example.com)` |
 | Headings | `## Heading` through `###### Heading` |
 | Blockquotes | `> Quoted text` |

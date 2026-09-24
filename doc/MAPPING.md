@@ -111,20 +111,22 @@ task item. Reverse conversion emits no task-list or task-item `localId`.
 | `strike` mark | `Strikeout` | `strike` mark |
 | `code` mark | `Code` | `code` mark |
 | `underline` mark | Raw HTML `<u>` inline pair | `underline` mark |
+| `subsup` mark | Raw HTML `<sub>` or `<sup>` inline pair | `subsup` mark |
 | `link` mark | `Link` | `link` mark |
 | `emoji` with `attrs.text` | `Str` holding that text | `text` |
 | `mention` with `attrs.id` | raw HTML `span` | `mention` |
 | `date` with a millisecond timestamp | raw HTML `span` | `date` |
 | `status` | raw HTML `span` | `status` |
 
-Underline is represented by strict `<u>` and `</u>` raw HTML inline pairs, so
-it remains editable in the local Markdown file. Supported text marks are
-emitted in a deterministic nesting order. Other marks
+Underline, subscript, and superscript are represented by strict `<u>`,
+`<sub>`, and `<sup>` raw HTML inline pairs, so they remain editable in the
+local Markdown file. ADF `subsup.attrs.type` must be `sub` or `sup`; it cannot
+be combined with an ADF `code` mark. Supported text marks are emitted in a
+deterministic nesting order. Other marks
 are ignored while retaining their text and supported marks. Extra fields on
 supported marks are ignored, but required values such as a link's non-empty
 string destination remain validated. Malformed or duplicate supported marks
-cause retention of the enclosing block. Code can be combined with the other
-supported marks.
+cause retention of the enclosing block.
 
 ## Tables and media
 
@@ -243,7 +245,7 @@ retains the nearest valid ancestor rather than changing the document shape.
 
 Each feature can later be promoted to a readable GFM mapping only when the
 structural mapping and reverse conversion are defined. Formatting marks such
-as `textColor` and `subsup`, and decorative attributes such as
+as `textColor`, and decorative attributes such as
 alignment, do not by themselves trigger opaque retention on supported nodes.
 
 ## Attachment interaction

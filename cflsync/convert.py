@@ -32,6 +32,17 @@ PANEL_ALERTS = {
     "success": "tip",
     "custom": "note"}
 ALERT_PANELS = {"note": "note", "tip": "tip", "important": "info", "warning": "warning", "caution": "error"}
+RAW_MARKS = {
+    "<u>": ("</u>", {
+        "type": "underline"}, "underline"),
+    "<sub>": ("</sub>", {
+        "type": "subsup",
+        "attrs": {
+            "type": "sub"}}, "subscript"),
+    "<sup>": ("</sup>", {
+        "type": "subsup",
+        "attrs": {
+            "type": "sup"}}, "superscript"), }
 
 
 def _local_zone_name():
@@ -651,7 +662,7 @@ class ADFToMarkdownConverter:
                 return None
 
             mark_type = mark["type"]
-            if mark_type not in {"strong", "em", "strike", "code", "link", "underline"}:
+            if mark_type not in {"strong", "em", "strike", "code", "link", "underline", "subsup"}:
                 continue
 
             if mark_type in values:
@@ -661,6 +672,9 @@ class ADFToMarkdownConverter:
 
         result = inlines
         if "code" in values:
+            if "subsup" in values:
+                return None
+
             result = self._convert_code_mark(inlines)
             if result is None:
                 return None
@@ -672,10 +686,26 @@ class ADFToMarkdownConverter:
         if "underline" in values:
             result = [{"t": "RawInline", "c": ["html", "<u>"]}, *result, {"t": "RawInline", "c": ["html", "</u>"]}, ]
 
+        if "subsup" in values:
+            result = self._convert_subsup_mark(result, values["subsup"])
+            if result is None:
+                return None
+
         if "link" in values:
             return self._convert_link_mark(result, values["link"])
 
         return result
+
+    def _convert_subsup_mark(self, inlines, mark):
+        attrs = mark.get("attrs")
+        if not isinstance(attrs, Mapping):
+            return None
+
+        tag = {"sub": "sub", "sup": "sup"}.get(attrs.get("type"))
+        if tag is None:
+            return None
+
+        return [{"t": "RawInline", "c": ["html", f"<{tag}>"]}, *inlines, {"t": "RawInline", "c": ["html", f"</{tag}>"]}, ]
 
     def _convert_code_mark(self, inlines):
         text = []
@@ -1225,9 +1255,9 @@ class MarkdownToADFConverter:
 
         raise ConversionError("raw HTML cflsync span is not closed")
 
-    def _convert_underline(self, pandoc_inlines, index, inlines, marks):
-        if any(mark["type"] == "underline" for mark in marks):
-            raise ConversionError("Pandoc inline has duplicate 'underline' marks")
+    def _convert_raw_mark(self, pandoc_inlines, index, inlines, marks, closing, mark, name):
+        if any(existing["type"] == mark["type"] for existing in marks):
+            raise ConversionError(f"Pandoc inline has duplicate '{mark['type']}' marks")
 
         content = []
         index += 1
@@ -1236,17 +1266,17 @@ class MarkdownToADFConverter:
             if not isinstance(pandoc_inline, Mapping):
                 raise ConversionError("Pandoc inline must be an object")
 
-            if pandoc_inline.get("t") == "RawInline" and self._raw_html(pandoc_inline) == "</u>":
+            if pandoc_inline.get("t") == "RawInline" and self._raw_html(pandoc_inline) == closing:
                 if not content:
-                    raise ConversionError("Pandoc underline content must not be empty")
+                    raise ConversionError(f"Pandoc {name} content must not be empty")
 
-                self._convert_inline_nodes_into(content, inlines, [*marks, {"type": "underline"}])
+                self._convert_inline_nodes_into(content, inlines, [*marks, mark])
                 return index + 1
 
             content.append(pandoc_inline)
             index += 1
 
-        raise ConversionError("Pandoc underline is not closed")
+        raise ConversionError(f"Pandoc {name} is not closed")
 
     def _raw_html(self, pandoc_inline):
         if not self._has_fields(pandoc_inline, {"t", "c"}):
@@ -1442,8 +1472,9 @@ class MarkdownToADFConverter:
                 raise ConversionError("Pandoc inline must be an object")
 
             if pandoc_inline.get("t") == "RawInline":
-                if self._raw_html(pandoc_inline) == "<u>":
-                    index = self._convert_underline(pandoc_inlines, index, inlines, marks)
+                raw_mark = RAW_MARKS.get(self._raw_html(pandoc_inline))
+                if raw_mark is not None:
+                    index = self._convert_raw_mark(pandoc_inlines, index, inlines, marks, *raw_mark)
                 else:
                     index = self._convert_raw_span(pandoc_inlines, index, inlines, marks)
                 continue

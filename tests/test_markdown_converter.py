@@ -520,6 +520,67 @@ class TestMarkdownToADFConverter(unittest.TestCase):
         self.assertEqual(markdown, '[<u>Underlined link</u>](https://example.test)\n')
         self.assertEqual(MarkdownToADFConverter(pandoc).convert(markdown), source)
 
+    def test_maps_raw_html_subsup_through_pandoc(self) -> None:
+        document = MarkdownToADFConverter(PandocRunner()).convert('H<sub>2</sub>O and x<sup>2</sup>\n')
+
+        self.assertEqual(
+            document["content"][0], {
+                "type":
+                "paragraph",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "H"}, {
+                            "type": "text",
+                            "text": "2",
+                            "marks": [{
+                                "type": "subsup",
+                                "attrs": {
+                                    "type": "sub"}}]}, {
+                                        "type": "text",
+                                        "text": "O and x"}, {
+                                            "type": "text",
+                                            "text": "2",
+                                            "marks": [{
+                                                "type": "subsup",
+                                                "attrs": {
+                                                    "type": "sup"}}]}]})
+
+    def test_round_trips_subsup_marks(self) -> None:
+        source = {
+            "type":
+            "doc",
+            "version":
+            1,
+            "content": [
+                {
+                    "type":
+                    "paragraph",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "H"}, {
+                                "type": "text",
+                                "text": "2",
+                                "marks": [{
+                                    "type": "subsup",
+                                    "attrs": {
+                                        "type": "sub"}}]}, {
+                                            "type": "text",
+                                            "text": "O and x"}, {
+                                                "type": "text",
+                                                "text": "2",
+                                                "marks": [{
+                                                    "type": "subsup",
+                                                    "attrs": {
+                                                        "type": "sup"}}, {
+                                                            "type": "strong"}]}]}]}
+        pandoc = PandocRunner()
+        markdown = ADFToMarkdownConverter(pandoc).convert(source)
+
+        self.assertEqual(markdown, 'H<sub>2</sub>O and x<sup>**2**</sup>\n')
+        self.assertEqual(MarkdownToADFConverter(pandoc).convert(markdown), source)
+
     def test_round_trips_a_status(self) -> None:
         source = {
             "type":
@@ -657,6 +718,10 @@ class TestMarkdownToADFConverter(unittest.TestCase):
     def test_rejects_an_unclosed_underline(self) -> None:
         with self.assertRaisesRegex(ConversionError, "underline is not closed"):
             MarkdownToADFConverter(PandocRunner()).convert('<u>text\n')
+
+    def test_rejects_an_unclosed_superscript(self) -> None:
+        with self.assertRaisesRegex(ConversionError, "superscript is not closed"):
+            MarkdownToADFConverter(PandocRunner()).convert('<sup>text\n')
 
     def test_rejects_a_span_that_is_not_an_emoji(self) -> None:
         pandoc = RecordingPandoc(

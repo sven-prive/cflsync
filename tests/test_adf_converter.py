@@ -132,6 +132,76 @@ class TestADFToMarkdownConverter(unittest.TestCase):
                                 "t": "RawInline",
                                 "c": ["html", "</u>"]}])
 
+    def test_maps_subsup_marks_to_raw_html(self) -> None:
+        for mark_type, tag in (("sub", "sub"), ("sup", "sup")):
+            with self.subTest(mark_type=mark_type):
+                pandoc = RecordingPandoc()
+                document = {
+                    "type":
+                    "doc",
+                    "version":
+                    1,
+                    "content": [
+                        {
+                            "type":
+                            "paragraph",
+                            "content":
+                            [{
+                                "type": "text",
+                                "text": "Synthetic",
+                                "marks": [{
+                                    "type": "subsup",
+                                    "attrs": {
+                                        "type": mark_type}}]}]}]}
+
+                ADFToMarkdownConverter(pandoc).convert(document)
+
+                self.assertEqual(
+                    pandoc.pandoc["blocks"][0]["c"], [
+                        {
+                            "t": "RawInline",
+                            "c": ["html", f"<{tag}>"]}, {
+                                "t": "Str",
+                                "c": "Synthetic"}, {
+                                    "t": "RawInline",
+                                    "c": ["html", f"</{tag}>"]}])
+
+    def test_invalid_subsup_marks_retain_the_enclosing_block(self) -> None:
+        cases = [
+            [{
+                "type": "subsup"}], [{
+                    "type": "subsup",
+                    "attrs": {
+                        "type": "invalid"}}], [{
+                            "type": "subsup",
+                            "attrs": {
+                                "type": "sub"}}],
+            [{
+                "type": "subsup",
+                "attrs": {
+                    "type": "sub"}}, {
+                        "type": "subsup",
+                        "attrs": {
+                            "type": "sup"}}], ]
+        for marks in cases:
+            with self.subTest(marks=marks):
+                if marks[0].get("attrs", {}).get("type") == "sub":
+                    marks = [*marks, {"type": "code"}]
+
+                pandoc = RecordingPandoc()
+                document = {
+                    "type": "doc",
+                    "version": 1,
+                    "content": [{
+                        "type": "paragraph",
+                        "content": [{
+                            "type": "text",
+                            "text": "Synthetic",
+                            "marks": marks}]}]}
+                ADFToMarkdownConverter(pandoc).convert(document)
+
+                self.assertEqual(pandoc.pandoc["blocks"][0]["t"], "CodeBlock")
+
     def test_structures_and_invalid_required_values_retain_original_json(self) -> None:
         paragraph = {"type": "paragraph", "content": [{"type": "text", "text": "Cell"}]}
         nodes = [
