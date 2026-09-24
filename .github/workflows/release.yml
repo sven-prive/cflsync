@@ -1,0 +1,67 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+
+      - name: Verify tag and project versions agree
+        id: version
+        shell: bash
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          project_version="$(uv run python -c 'import tomllib; from pathlib import Path; print(tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])')"
+          if [[ "$tag_version" != "$project_version" ]]; then
+            echo "tag version '$tag_version' does not match pyproject.toml version '$project_version'" >&2
+            exit 1
+          fi
+          echo "version=$project_version" >> "$GITHUB_OUTPUT"
+
+      - name: Build zipapp
+        run: uv run python packaging/scripts/build_zipapp.py
+
+      - name: Assemble release archive and checksum
+        id: package
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          archive="dist/cflsync-${VERSION}.zip"
+          checksum="${archive}.sha256"
+          zip --junk-paths "$archive" dist/cflsync.pyz packaging/scoop/cflsync.cmd
+          digest="$(sha256sum "$archive")"
+          printf '%s  %s\n' "${digest%% *}" "$(basename "$archive")" > "$checksum"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "checksum=$checksum" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        env:
+          ARCHIVE: ${{ steps.package.outputs.archive }}
+          CHECKSUM: ${{ steps.package.outputs.checksum }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_NOTES: |
+            This release contains Object Code under the Mozilla Public License, version 2.0.
+
+            The corresponding Source Code Form is available at https://github.com/sven-prive/cflsync
+            under the [Mozilla Public License 2.0](https://github.com/sven-prive/cflsync/blob/main/LICENSE.md).
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: gh release create "$TAG" "$ARCHIVE" "$CHECKSUM" --title "cflsync $VERSION" --notes "$RELEASE_NOTES"
