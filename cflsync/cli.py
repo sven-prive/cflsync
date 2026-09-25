@@ -82,8 +82,7 @@ class PageCreateCommand:
         return self.run(args.parent_page_ref, args.title)
 
     def run(self, parent_page_ref: str, title: str) -> int:
-        if not title.strip() or title.strip() != title or "\n" in title or "\r" in title or "\t" in title:
-            raise SyncError("page title must be non-empty single-line text without surrounding whitespace")
+        _validate_page_title(title)
 
         try:
             workarea, api = _open_workarea()
@@ -119,13 +118,13 @@ class PagePullCommand:
             workarea, api = _open_workarea()
             reference = PageRef.resolve(page_ref, workarea, api)
             page = api.get_page(reference.page_id)
-            self._pull(workarea, page, PandocRunner(), force)
+            self._pull(workarea, page, PandocRunner(), api, force)
         except (OSError, UnicodeError) as error:
             raise SyncError(f"cannot pull page: {error}") from error
 
         return 0
 
-    def _pull(self, workarea, page, pandoc, force=False):
+    def _pull(self, workarea, page, pandoc, api, force=False):
         inspector = PageInspector(pandoc)
         attachments = page.attachments()
         MediaResolver((attachment.filename, attachment.id) for attachment in attachments)
@@ -169,7 +168,7 @@ class PagePullCommand:
         if not isinstance(document, dict):
             raise SyncError(f"page '{page.id}' ADF must be an object")
 
-        markdown = ADFToMarkdownConverter(pandoc, media).convert(document, title=page.title)
+        markdown = ADFToMarkdownConverter(pandoc, media, api.get_user).convert(document, title=page.title)
         bodies = {}
         metadata = {}
         for attachment in attachments:
@@ -287,6 +286,70 @@ class PagePushCommand:
             markdown, title=page.title)
 
 
+class PageRenameCommand:
+
+    def configure(self, subparsers: _SubParsersAction[ArgumentParser]) -> None:
+        page_rename_parser = subparsers.add_parser("rename", help="rename a synchronized Confluence Cloud page")
+        page_rename_parser.add_argument("page_ref", help="page ID, title, page.md file, or page directory")
+        page_rename_parser.add_argument("title", help="new page title")
+        page_rename_parser.set_defaults(command=self)
+
+    def __call__(self, args: Namespace) -> int:
+        return self.run(args.page_ref, args.title)
+
+    def run(self, page_ref: str, title: str) -> int:
+        _validate_page_title(title)
+        try:
+            workarea, api = _open_workarea()
+            reference = PageRef.resolve(page_ref, workarea, api)
+            cache_path = workarea.cache_path(reference.page_id)
+            if not cache_path.exists():
+                raise SyncError(f"page '{reference.page_id}' is not managed in this workarea")
+
+            state = PageState.load(cache_path)
+            page = api.get_page(reference.page_id)
+            self._rename(workarea, page, state, cache_path, PandocRunner(), title)
+        except (OSError, UnicodeError) as error:
+            raise SyncError(f"cannot rename page: {error}") from error
+
+        return 0
+
+    def _rename(self, workarea, page, state, cache_path, pandoc, title):
+        inspector = PageInspector(pandoc)
+        directory = workarea.page_directory(state)
+        attachments = page.attachments()
+        changes = inspector.inspect(directory, state, page, attachments)
+        if changes.locally or changes.remotely:
+            raise SyncError(f"page '{page.id}' has local or remote changes; rename conflicts")
+
+        if title == page.title:
+            print(f"Page '{page.id}' is already named '{title}'; nothing renamed.")
+            return
+
+        if page.body is None:
+            raise SyncError(f"page '{page.id}' has no ADF body")
+
+        directory_name = workarea.page_directory_name(title)
+        markdown = (directory / "page.md").read_text(encoding="utf-8")
+        renamed_markdown = MarkdownToADFConverter(pandoc).retitle(markdown, state.page.title, title)
+        content_hash = inspector.content_hash(renamed_markdown)
+        target_state = PageState(PageMetadata(page.id, title, directory_name, page.version, content_hash), state.attachments)
+        workarea.page_directory_target(target_state)
+        staging = workarea.stage_page(directory_name, renamed_markdown, {}, source=directory)
+        try:
+            updated = page.update(page.body, title)
+            if updated.title != title:
+                raise SyncError(f"page '{page.id}' was renamed remotely to unexpected title '{updated.title}'")
+
+            renamed_state = PageState(
+                PageMetadata(updated.id, updated.title, directory_name, updated.version, content_hash), state.attachments)
+            with workarea.replace_page(staging, directory_name, directory):
+                renamed_state.save(cache_path)
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging)
+
+
 class PageStatusCommand:
 
     def configure(self, subparsers: _SubParsersAction[ArgumentParser]) -> None:
@@ -337,6 +400,7 @@ class PageCommand:
         PageCreateCommand().configure(page_subparsers)
         PagePullCommand().configure(page_subparsers)
         PagePushCommand().configure(page_subparsers)
+        PageRenameCommand().configure(page_subparsers)
         PageStatusCommand().configure(page_subparsers)
 
     def __call__(self, args: Namespace) -> int:
@@ -375,6 +439,11 @@ def _open_workarea():
 def _print_usage(parser: ArgumentParser) -> int:
     parser.print_usage()
     return 0
+
+
+def _validate_page_title(title: str) -> None:
+    if not title.strip() or title.strip() != title or "\n" in title or "\r" in title or "\t" in title:
+        raise SyncError("page title must be non-empty single-line text without surrounding whitespace")
 
 
 # vim: set ts=4 sw=4 et tw=132:

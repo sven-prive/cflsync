@@ -91,9 +91,10 @@ class ConversionError(SyncError):
 class ADFToMarkdownConverter:
     """Convert supported ADF content to GFM, retaining unsupported structures."""
 
-    def __init__(self, pandoc, media=None) -> None:
+    def __init__(self, pandoc, media=None, mention_lookup=None) -> None:
         self._pandoc_runner = pandoc
         self._media = media
+        self._mention_lookup = mention_lookup
 
     def convert(self, document: Mapping[str, object], title: str | None = None) -> str:
         """Convert an ADF body to GFM, optionally prefixed by its page title."""
@@ -535,7 +536,7 @@ class ADFToMarkdownConverter:
         return self._convert_text({"type": "text", "text": text})
 
     def _convert_mention(self, node):
-        """Render an ADF mention as a canonical raw HTML span."""
+        """Render an ADF mention as a mailto link when its user email is available."""
         attrs = node.get("attrs")
         if not isinstance(attrs, Mapping):
             return None
@@ -543,6 +544,21 @@ class ADFToMarkdownConverter:
         account_id = attrs.get("id")
         if not isinstance(account_id, str) or not account_id:
             return None
+
+        text = attrs.get("text")
+        if text is not None and (not isinstance(text, str) or not text):
+            return None
+
+        if self._mention_lookup is not None:
+            user = self._mention_lookup(account_id)
+            email = None if user is None else user.email
+            display_name = None if text is None else text.removeprefix("@")
+            if isinstance(email, str) and email and display_name:
+                inlines = self._convert_text({"type": "text", "text": display_name})
+                if inlines is None:
+                    return None
+
+                return [{"t": "Link", "c": [["", [], []], inlines, [f"mailto:{email}", ""]]}]
 
         attributes = [f'cfl-type="mention"', f'cfl-id="{escape(account_id, quote=True)}"', ]
         for adf_name, html_name in (("accessLevel", "cfl-access-level"), ("userType", "cfl-user-type")):
@@ -555,13 +571,9 @@ class ADFToMarkdownConverter:
 
             attributes.append(f'{html_name}="{escape(value, quote=True)}"')
 
-        text = attrs.get("text")
         if text is None:
             inlines = []
         else:
-            if not isinstance(text, str) or not text:
-                return None
-
             inlines = self._convert_text({"type": "text", "text": text})
             if inlines is None:
                 return None
@@ -759,6 +771,19 @@ class MarkdownToADFConverter:
     def convert(self, markdown: str, title: str | None = None) -> Mapping[str, object]:
         """Convert one GFM document to ADF, removing the page-title heading when given."""
         return self._to_adf(self._pandoc_runner.gfm_to_pandoc(markdown), title)
+
+    def retitle(self, markdown: str, previous_title: str, title: str) -> str:
+        """Replace a validated generated title heading and return canonical GFM."""
+        pandoc = self._pandoc_runner.gfm_to_pandoc(markdown)
+        blocks = pandoc.get("blocks")
+        if not isinstance(blocks, list):
+            raise ConversionError("Pandoc document blocks must be a list")
+
+        self._without_title(blocks, previous_title)
+        title_document = ADFToMarkdownConverter(self._pandoc_runner)._to_pandoc({"type": "doc", "version": 1, "content": []}, title)
+        blocks[0] = title_document["blocks"][0]
+
+        return self._pandoc_runner.pandoc_to_gfm(pandoc)
 
     def _to_adf(self, pandoc, title=None):
         if not isinstance(pandoc, Mapping):

@@ -84,15 +84,18 @@ class RemotePage:
 
         return cls(client, id, title, version, body, space_id, parent_id)
 
-    def update(self, body: str) -> "RemotePage":
+    def update(self, body: str, title: str | None = None) -> "RemotePage":
         """Update this page using its current version for optimistic concurrency."""
+        if title is None:
+            title = self.title
+
         response = self._client.make_json_request(
             "PUT",
             f"/pages/{self.id}",
             json_body={
                 "id": self.id,
                 "status": "current",
-                "title": self.title,
+                "title": title,
                 "body": {
                     "representation": "atlas_doc_format",
                     "value": body},
@@ -305,6 +308,15 @@ class APIClient:
                 "include-version": "true"})
         pages = [RemotePage.from_json(self, _json_mapping(value, "page result")) for value in values]
         return [page for page in pages if page.title == title]
+
+    def get_user(self, account_id: str) -> RemoteUser:
+        """Return the user identified by *account_id*."""
+        if not isinstance(account_id, str) or not account_id:
+            raise ValueError("account ID must be a non-empty string")
+
+        transport = self._transport.clone("/wiki/rest/api")
+        response = self._request(transport, "GET", "/user", parameters={"accountId": account_id})
+        return RemoteUser.from_json(self._json_object(response))
 
     def find_users_by_name(self, display_name: str) -> list[RemoteUser]:
         """Return users whose display name matches *display_name* through user-specific CQL."""

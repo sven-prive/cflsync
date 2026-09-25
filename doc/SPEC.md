@@ -8,6 +8,7 @@ cflsync init [-p PROFILE]
 cflsync page create PARENT_PAGE_REF TITLE
 cflsync page pull [-f | --force] PAGE_REF
 cflsync page push [-f | --force] PAGE_REF
+cflsync page rename PAGE_REF TITLE
 cflsync page status PAGE_REF
 ```
 
@@ -17,6 +18,13 @@ neither resolves nor records a Confluence page. `page pull` resolves
 push` finds the identified page's local state at
 `.cflsync/cache/<page-id>.json`.
 
+`page rename PAGE_REF TITLE` requires the referenced managed page to be in
+sync. It updates the remote title with optimistic concurrency, rewrites the
+generated title heading, renames the title-derived local directory, and writes
+the updated cache state. `TITLE` must be non-empty, single-line text without
+surrounding whitespace. It is the explicit local-title operation; `page push`
+continues to reject an edited title heading.
+
 `page create PARENT_PAGE_REF TITLE` resolves `PARENT_PAGE_REF`, creates an
 empty child page remotely, then runs the equivalent of `page pull` for its
 returned ID. It has no offline mode, so each local page begins with
@@ -25,7 +33,7 @@ to a directory containing `.cflsync/profile`.
 
 ## Page references
 
-`page create`, `page pull`, `page push`, and `page status` accept a page
+`page create`, `page pull`, `page push`, `page rename`, and `page status` accept a page
 reference: a numeric page ID, page title, local GFM file, or local page
 directory. The resolver classifies the argument in this order:
 
@@ -183,6 +191,15 @@ converts `page.md` to ADF, updates the page, and deletes previously managed
 attachments removed locally, in that order. The title heading that pull adds is
 removed before conversion and is not part of the body; editing it is rejected,
 because push does not rename pages.
+
+`page rename` is non-destructive but changes the local path. It first checks
+that page and attachment state is unchanged locally and remotely, and rejects
+a target directory that is occupied or cached for another page. It stages the
+rewritten Markdown before the remote update, preserves the current ADF body in
+that update, then renames the directory and writes cache last. If the remote
+update succeeds but local installation or the cache write fails, the command
+reports incomplete synchronization; the old cache makes the remote title change
+visible to `status` and recoverable with `pull`.
 
 `page pull` stages downloads, conversion, attachment-path validation, and
 content validation in a temporary directory. For an existing page it preserves

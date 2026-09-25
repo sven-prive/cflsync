@@ -9,6 +9,7 @@
 import json
 import unittest
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
@@ -654,7 +655,33 @@ class TestADFToMarkdownConverter(unittest.TestCase):
                                             "t": "RawInline",
                                             "c": ["html", "</span>"]}])
 
-    def test_maps_a_mention_to_a_raw_html_span(self) -> None:
+    def test_maps_a_mention_to_a_mailto_link_when_the_user_has_an_email(self) -> None:
+        pandoc = RecordingPandoc()
+        mention = {"type": "mention", "attrs": {"id": "account-123", "text": "@Example User"}}
+
+        ADFToMarkdownConverter(
+            pandoc, mention_lookup=lambda account_id: SimpleNamespace(email="example.user@example.test")).convert(
+                {
+                    "type": "doc",
+                    "version": 1,
+                    "content": [{
+                        "type": "paragraph",
+                        "content": [mention]}]})
+
+        self.assertEqual(
+            pandoc.pandoc["blocks"][0]["c"], [
+                {
+                    "t":
+                    "Link",
+                    "c": [
+                        ["", [], []], [{
+                            "t": "Str",
+                            "c": "Example"}, {
+                                "t": "Space"}, {
+                                    "t": "Str",
+                                    "c": "User"}], ["mailto:example.user@example.test", ""]]}])
+
+    def test_maps_a_mention_to_a_raw_html_span_when_the_user_has_no_email(self) -> None:
         pandoc = RecordingPandoc()
         mention = {
             "type": "mention",
@@ -664,13 +691,14 @@ class TestADFToMarkdownConverter(unittest.TestCase):
                 "accessLevel": "SITE",
                 "userType": "DEFAULT"}}
 
-        ADFToMarkdownConverter(pandoc).convert(
-            {
-                "type": "doc",
-                "version": 1,
-                "content": [{
-                    "type": "paragraph",
-                    "content": [mention]}]})
+        ADFToMarkdownConverter(
+            pandoc, mention_lookup=lambda account_id: SimpleNamespace(email=None)).convert(
+                {
+                    "type": "doc",
+                    "version": 1,
+                    "content": [{
+                        "type": "paragraph",
+                        "content": [mention]}]})
 
         self.assertEqual(
             pandoc.pandoc["blocks"][0]["c"], [

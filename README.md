@@ -42,6 +42,7 @@ cflsync init [-p PROFILE]
 cflsync page create PARENT_PAGE_REF TITLE
 cflsync page pull [-f | --force] PAGE_REF
 cflsync page push [-f | --force] PAGE_REF
+cflsync page rename PAGE_REF TITLE
 cflsync page status PAGE_REF
 ```
 
@@ -55,7 +56,8 @@ the remote version is unchanged. Unmanaged files are preserved.
 Push reports when there is nothing to upload, and refuses to overwrite remote
 changes. Use `page push --force PAGE_REF` to prefer local content. The first
 heading of `page.md` is the page title and cannot be edited; push does not
-rename pages.
+rename pages. Use `page rename PAGE_REF TITLE` to change the remote title,
+generated heading, and title-derived local directory as one explicit operation.
 
 Use `cflsync --help` for top-level help, `cflsync page --help` for page-command
 help, and `cflsync page COMMAND --help` for a command's arguments.

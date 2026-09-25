@@ -104,6 +104,31 @@ class TestAPIClientPageOperations(unittest.TestCase):
                 "body-format": "atlas_doc_format",
                 "include-version": "true"})
 
+    def test_updates_a_page_title_while_preserving_its_body(self) -> None:
+        updated = page_fixture(title="Renamed page")
+        updated["version"] = {"number": 18}
+        transport = MockTransport([MockResponse.from_json(updated)])
+        client = APIClient("example.atlassian.net", "user", "token", transport=transport)
+        page = RemotePage.from_json(client, page_fixture())
+
+        result = page.update(page.body, "Renamed page")
+
+        self.assertEqual(result.title, "Renamed page")
+        self.assertEqual(result.version, 18)
+        request = transport.requests[0]
+        self.assertEqual(request.method, "PUT")
+        self.assertEqual(request.path, "/pages/123456")
+        self.assertEqual(
+            json.loads(request.body), {
+                "id": "123456",
+                "status": "current",
+                "title": "Renamed page",
+                "body": {
+                    "representation": "atlas_doc_format",
+                    "value": '{"type":"doc","version":1,"content":[]}'},
+                "version": {
+                    "number": 18}})
+
     def test_creates_an_empty_child_page(self) -> None:
         transport = MockTransport([MockResponse.from_json(page_fixture())])
         client = APIClient("example.atlassian.net", "user", "token", transport=transport)
@@ -137,6 +162,18 @@ class TestAPIClientPageOperations(unittest.TestCase):
         self.assertEqual(transport.clone_prefixes, ["/wiki/rest/api"])
         self.assertEqual(transport.requests[0].path, "/search/user")
         self.assertEqual(transport.requests[0].parameters, {"cql": 'user.fullname~"Example \\"User\\""'})
+
+    def test_gets_a_user_by_account_id_through_the_v1_user_endpoint(self) -> None:
+        transport = MockTransport([MockResponse.from_json(user_fixture())])
+        client = APIClient("example.atlassian.net", "user", "token", transport=transport)
+
+        user = client.get_user("account-123")
+
+        self.assertEqual(user.account_id, "account-123")
+        self.assertEqual(user.email, "example.user@example.test")
+        self.assertEqual(transport.clone_prefixes, ["/wiki/rest/api"])
+        self.assertEqual(transport.requests[0].path, "/user")
+        self.assertEqual(transport.requests[0].parameters, {"accountId": "account-123"})
 
     def test_finds_a_user_only_when_name_and_email_have_one_match(self) -> None:
         first = user_fixture()

@@ -51,7 +51,8 @@ Body-only conversion may omit the title.
 
 The generated title heading is presentation metadata, not an ADF body node.
 Reverse conversion removes it when the caller supplies the title, and rejects a
-heading that no longer matches, because push does not rename pages.
+heading that no longer matches, because push does not rename pages. `page
+rename` rewrites the generated heading separately from body conversion.
 
 ## Direct block mappings
 
@@ -114,7 +115,8 @@ task item. Reverse conversion emits no task-list or task-item `localId`.
 | `subsup` mark | Raw HTML `<sub>` or `<sup>` inline pair | `subsup` mark |
 | `link` mark | `Link` | `link` mark |
 | `emoji` with `attrs.text` | `Str` holding that text | `text` |
-| `mention` with `attrs.id` | raw HTML `span` | `mention` |
+| `mention` with `attrs.id` and a resolvable email address | `Link` with a `mailto:` target | `mention` |
+| `mention` with `attrs.id` but no email address | raw HTML `span` | `mention` |
 | `date` with a millisecond timestamp | raw HTML `span` | `date` |
 | `status` | raw HTML `span` | `status` |
 
@@ -213,14 +215,16 @@ accepts only one plain-text status span with those exact attributes. Renderers
 may sanitize the custom attribute or style, but the Markdown source remains
 reversible for cflsync.
 
-A mention becomes `<span cfl-type="mention" cfl-id="ACCOUNT-ID">TEXT</span>`.
-When present, `accessLevel` and `userType` become `cfl-access-level` and
+A mention whose account ID resolves to a user with an email address becomes
+`[Display name](mailto:address)`; the leading `@` in the ADF text is omitted
+from the display name. On push, this form queries Confluence for that display
+name and emits a mention when exactly one result has the given email address.
+It otherwise remains an email link. When the resolved user has no email
+address, a mention becomes `<span cfl-type="mention" cfl-id="ACCOUNT-ID">TEXT</span>`.
+For this fallback, `accessLevel` and `userType` become `cfl-access-level` and
 `cfl-user-type` attributes. `localId` is ignored. Reverse conversion parses
 the span through Pandoc and requires a non-empty account ID; it performs no
-name or email lookup. On push only, `[Display name](mailto:address)` queries
-Confluence for that display name and emits a mention when exactly one result
-has the given email address. It otherwise remains an email link. Pull always
-uses the raw HTML span syntax.
+name or email lookup.
 
 ADF has inline nodes such as `inlineCard`. A GFM fence is a block construct and cannot
 occupy a position inside a Pandoc `Para` or `Header`.

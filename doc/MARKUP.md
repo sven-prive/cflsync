@@ -34,7 +34,8 @@ git push origin v1.2.3
 
 The first `#` heading is the page title. It is added by `page pull`, must stay
 the first and only level-one heading, and cannot rename the remote page. Use
-`##` through `######` for headings in the page body.
+`page rename PAGE_REF TITLE` to rename a page. Use `##` through `######` for
+headings in the page body.
 
 ## Supported Markdown
 
@@ -75,9 +76,10 @@ cell colours, alignment, and similar presentation settings are not retained.
 
 ### Supported macros
 
-Pulled mentions, dates, and status lozenges are represented by special HTML
-spans, which cflsync converts back to their Confluence forms on push. They can
-be edited, but their required attributes must remain intact:
+Pulled dates and status lozenges are represented by special HTML spans, which
+cflsync converts back to their Confluence forms on push. Mentions whose users
+have no visible email address also use a special HTML span. They can be edited,
+but their required attributes must remain intact:
 
 - Change the text inside a status span and, if needed, its
   `background-color` to `gray`, `purple`, `blue`, `red`, `yellow`, or `green`.
@@ -107,8 +109,9 @@ On push, a plain email link can create a Confluence user mention:
 
 cflsync searches for `Example User` and emits a mention only when exactly one
 accessible result has the given email address. If no result or multiple results
-match, the link remains an ordinary email link. Pull always writes mentions as
-their `cfl-type="mention"` HTML spans.
+match, the link remains an ordinary email link. Pull writes this form for a
+mention whose user has a visible email address; otherwise it writes the
+`cfl-type="mention"` HTML span.
 
 ### Other macros
 

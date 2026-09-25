@@ -19,7 +19,7 @@ from unittest.mock import patch
 from cflsync import APIClient, PageState, Profile, SyncError
 from cflsync.cli import PagePullCommand
 from tests.support import MockResponse, MockTransport, example_page_state, temporary_workarea
-from tests.test_api_operations import attachment_fixture, page_fixture
+from tests.test_api_operations import attachment_fixture, page_fixture, user_fixture
 
 
 class TestPagePull(unittest.TestCase):
@@ -39,7 +39,7 @@ class TestPagePull(unittest.TestCase):
 
         return page
 
-    def _pull(self, workarea, page=None, attachments=None, downloads=None, force=False):
+    def _pull(self, workarea, page=None, attachments=None, downloads=None, user_responses=(), force=False):
         if page is None:
             page = self._page()
 
@@ -53,6 +53,7 @@ class TestPagePull(unittest.TestCase):
         # Exercise actual pagination, including an empty final page.
         responses.append(MockResponse.from_json({"results": attachments, "_links": {"next": "/next"}}))
         responses.append(MockResponse.from_json({"results": []}))
+        responses.extend(user_responses)
         responses.extend(downloads)
         transport = MockTransport(responses)
         client = APIClient("example.atlassian.net", "user", "token", transport=transport)
@@ -84,6 +85,36 @@ class TestPagePull(unittest.TestCase):
             if os.name != "nt":
                 self.assertEqual(workarea.cache_path("123456").stat().st_mode & 0o777, 0o600)
             self.assertIn("/next", [request.path for request in transport.requests])
+
+    def test_pull_writes_a_mailto_link_for_a_mention_with_an_email_address(self) -> None:
+        with temporary_workarea() as workarea:
+            page = self._page()
+            page["body"] = {
+                "atlas_doc_format": {
+                    "value":
+                    json.dumps(
+                        {
+                            "type":
+                            "doc",
+                            "version":
+                            1,
+                            "content": [
+                                {
+                                    "type": "paragraph",
+                                    "content": [{
+                                        "type": "mention",
+                                        "attrs": {
+                                            "id": "account-123",
+                                            "text": "@Example User"}}]}]})}}
+
+            transport = self._pull(workarea, page, attachments=[], user_responses=[MockResponse.from_json(user_fixture())])
+
+            self.assertEqual(
+                (workarea.root_dir / "Example page/page.md").read_text(),
+                "# Example page\n\n[Example User](mailto:example.user@example.test)\n")
+            user_request = transport.requests[-1]
+            self.assertEqual(user_request.path, "/user")
+            self.assertEqual(user_request.parameters, {"accountId": "account-123"})
 
     def test_unchanged_and_formatting_only_changes_are_noops(self) -> None:
         with temporary_workarea() as workarea:

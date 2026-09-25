@@ -410,12 +410,23 @@ class Workarea:
     def page_directory_target(self, state: PageState) -> Path:
         """Return a safe, unoccupied target path for a page directory."""
         directory = self._page_directory_path(state.page.directory)
+        for other_id, path in self.page_state_paths().items():
+            other = PageState.load(path)
+            if other_id != state.page.id and other.page.directory.casefold() == state.page.directory.casefold():
+                raise Workarea.Error(f"page directory '{state.page.directory}' is assigned to page '{other_id}'")
+
         for existing in self.root_dir.iterdir():
             if existing.name.casefold() == state.page.directory.casefold() and existing != directory:
                 raise Workarea.Error(f"page directory '{state.page.directory}' already exists")
 
         cached_path = self.page_state_paths().get(state.page.id)
         cached_state = PageState.load(cached_path) if cached_path is not None else None
+        if cached_state is not None and cached_state.page.directory != state.page.directory:
+            source = self._page_directory_path(cached_state.page.directory)
+            if _is_windows() and _current_directory_is_inside(source):
+                raise Workarea.Error(
+                    "cannot rename a page directory while it is the current directory; run cflsync from outside it")
+
         if directory.exists() and (cached_state is None or cached_state.page.directory != state.page.directory):
             raise Workarea.Error(f"page directory '{state.page.directory}' already exists")
 
