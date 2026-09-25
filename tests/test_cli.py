@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from cflsync import SyncError
-from cflsync.cli import PageCreateCommand, PagePullCommand, PagePushCommand, PageRenameCommand, PageStatusCommand, main
+from cflsync.cli import PageCreateCommand, PageMoveCommand, PagePullCommand, PagePushCommand, PageRenameCommand, PageStatusCommand, main
 
 
 class TestPageCommandDispatch(unittest.TestCase):
@@ -30,6 +30,13 @@ class TestPageCommandDispatch(unittest.TestCase):
 
         self.assertEqual(result, 0)
         run.assert_called_once_with("123456", "Renamed page")
+
+    def test_dispatches_page_move_arguments_to_its_command(self) -> None:
+        with patch.object(PageMoveCommand, "run", return_value=0) as run:
+            result = main(["cflsync", "page", "move", "123456", "987654"])
+
+        self.assertEqual(result, 0)
+        run.assert_called_once_with("123456", "987654")
 
     def test_dispatches_page_reference_arguments_to_page_commands(self) -> None:
         cases = [("pull", PagePullCommand), ("push", PagePushCommand), ("status", PageStatusCommand)]
@@ -61,7 +68,7 @@ class TestPageCommandDispatch(unittest.TestCase):
                 main(["cflsync", "page", "--help"])
 
         self.assertEqual(raised.exception.code, 0)
-        for command_name in ["create", "pull", "push", "rename", "status"]:
+        for command_name in ["create", "pull", "push", "rename", "move", "status"]:
             self.assertIn(command_name, output.getvalue())
 
 

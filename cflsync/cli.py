@@ -350,6 +350,74 @@ class PageRenameCommand:
                 shutil.rmtree(staging)
 
 
+class PageMoveCommand:
+
+    def configure(self, subparsers: _SubParsersAction[ArgumentParser]) -> None:
+        page_move_parser = subparsers.add_parser("move", help="move a synchronized Confluence Cloud page")
+        page_move_parser.add_argument("page_ref", help="page ID, title, page.md file, or page directory")
+        page_move_parser.add_argument("new_parent_ref", help="page ID, title, page.md file, or page directory")
+        page_move_parser.set_defaults(command=self)
+
+    def __call__(self, args: Namespace) -> int:
+        return self.run(args.page_ref, args.new_parent_ref)
+
+    def run(self, page_ref: str, new_parent_ref: str) -> int:
+        try:
+            workarea, api = _open_workarea()
+            reference = PageRef.resolve(page_ref, workarea, api)
+            cache_path = workarea.cache_path(reference.page_id)
+            if not cache_path.exists():
+                raise SyncError(f"page '{reference.page_id}' is not managed in this workarea")
+
+            state = PageState.load(cache_path)
+            page = api.get_page(reference.page_id)
+            parent_reference = PageRef.resolve(new_parent_ref, workarea, api)
+            parent = api.get_page(parent_reference.page_id)
+            self._move(workarea, page, parent, state, cache_path, PandocRunner(), api)
+        except (OSError, UnicodeError) as error:
+            raise SyncError(f"cannot move page: {error}") from error
+
+        return 0
+
+    def _move(self, workarea, page, parent, state, cache_path, pandoc, api):
+        inspector = PageInspector(pandoc)
+        directory = workarea.page_directory(state)
+        changes = inspector.inspect(directory, state, page, page.attachments())
+        if changes.locally or changes.remotely:
+            raise SyncError(f"page '{page.id}' has local or remote changes; move conflicts")
+
+        if page.id == parent.id:
+            raise SyncError("a page cannot be its own parent")
+        if page.space_id is None:
+            raise SyncError(f"page '{page.id}' reports no space")
+        if parent.space_id is None:
+            raise SyncError(f"new parent page '{parent.id}' reports no space")
+        if page.space_id != parent.space_id:
+            raise SyncError(f"new parent page '{parent.id}' is in a different space")
+        if page.parent_id == parent.id:
+            print(f"Page '{page.id}' is already a child of '{parent.id}'; nothing moved.")
+            return
+
+        if page.body is None:
+            raise SyncError(f"page '{page.id}' has no ADF body")
+
+        try:
+            updated = page.update(page.body, parent_id=parent.id)
+        except SyncError as error:
+            raise SyncError(f"cannot move page '{page.id}' to parent '{parent.id}': {error}") from error
+        if updated.parent_id != parent.id:
+            raise SyncError(f"page '{page.id}' was moved remotely to unexpected parent '{updated.parent_id}'")
+        if updated.title != state.page.title:
+            raise SyncError(f"page '{page.id}' was moved remotely with unexpected title '{updated.title}'")
+
+        moved_state = PageState(
+            PageMetadata(updated.id, state.page.title, state.page.directory, updated.version, state.page.content_hash),
+            state.attachments)
+        try:
+            moved_state.save(cache_path)
+        except SyncError as error:
+            raise SyncError(f"moved page '{page.id}' remotely but could not update local state: {error}") from error
+
 class PageStatusCommand:
 
     def configure(self, subparsers: _SubParsersAction[ArgumentParser]) -> None:
@@ -401,6 +469,7 @@ class PageCommand:
         PagePullCommand().configure(page_subparsers)
         PagePushCommand().configure(page_subparsers)
         PageRenameCommand().configure(page_subparsers)
+        PageMoveCommand().configure(page_subparsers)
         PageStatusCommand().configure(page_subparsers)
 
     def __call__(self, args: Namespace) -> int:

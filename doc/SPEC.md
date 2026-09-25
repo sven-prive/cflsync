@@ -9,6 +9,7 @@ cflsync page create PARENT_PAGE_REF TITLE
 cflsync page pull [-f | --force] PAGE_REF
 cflsync page push [-f | --force] PAGE_REF
 cflsync page rename PAGE_REF TITLE
+cflsync page move PAGE_REF NEW_PARENT_REF
 cflsync page status PAGE_REF
 ```
 
@@ -25,6 +26,11 @@ the updated cache state. `TITLE` must be non-empty, single-line text without
 surrounding whitespace. It is the explicit local-title operation; `page push`
 continues to reject an edited title heading.
 
+`page move PAGE_REF NEW_PARENT_REF` requires the referenced managed page to be
+in sync. `NEW_PARENT_REF` resolves to a remote page, which need not be managed
+locally. The command changes the remote parent but leaves the current
+loose-page workarea's directory and Markdown unchanged.
+
 `page create PARENT_PAGE_REF TITLE` resolves `PARENT_PAGE_REF`, creates an
 empty child page remotely, then runs the equivalent of `page pull` for its
 returned ID. It has no offline mode, so each local page begins with
@@ -33,7 +39,7 @@ to a directory containing `.cflsync/profile`.
 
 ## Page references
 
-`page create`, `page pull`, `page push`, `page rename`, and `page status` accept a page
+`page create`, `page pull`, `page push`, `page rename`, `page move`, and `page status` accept a page
 reference: a numeric page ID, page title, local GFM file, or local page
 directory. The resolver classifies the argument in this order:
 
@@ -200,6 +206,15 @@ that update, then renames the directory and writes cache last. If the remote
 update succeeds but local installation or the cache write fails, the command
 reports incomplete synchronization; the old cache makes the remote title change
 visible to `status` and recoverable with `pull`.
+
+`page move` checks that the managed source page and attachments are unchanged
+locally and remotely. It resolves and fetches the new parent, which must be a
+different page in the same space. A move sends the existing title and ADF body
+with the new `parentId` in one versioned update. Confluence validates the
+resulting hierarchy; a rejected update identifies both the source and target
+page IDs. The local directory and page content remain unchanged; cache state
+records the returned page version last. If cache writing fails after the remote
+move, the command reports incomplete synchronization and a pull can recover it.
 
 `page pull` stages downloads, conversion, attachment-path validation, and
 content validation in a temporary directory. For an existing page it preserves

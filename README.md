@@ -43,6 +43,7 @@ cflsync page create PARENT_PAGE_REF TITLE
 cflsync page pull [-f | --force] PAGE_REF
 cflsync page push [-f | --force] PAGE_REF
 cflsync page rename PAGE_REF TITLE
+cflsync page move PAGE_REF NEW_PARENT_REF
 cflsync page status PAGE_REF
 ```
 
@@ -58,6 +59,10 @@ changes. Use `page push --force PAGE_REF` to prefer local content. The first
 heading of `page.md` is the page title and cannot be edited; push does not
 rename pages. Use `page rename PAGE_REF TITLE` to change the remote title,
 generated heading, and title-derived local directory as one explicit operation.
+
+Use `page move PAGE_REF NEW_PARENT_REF` to change a synchronized page's remote
+parent. The new parent must exist remotely in the same Confluence space; the
+current loose-page workarea does not move the local page directory.
 
 Use `cflsync --help` for top-level help, `cflsync page --help` for page-command
 help, and `cflsync page COMMAND --help` for a command's arguments.

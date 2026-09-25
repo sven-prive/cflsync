@@ -129,6 +129,22 @@ class TestAPIClientPageOperations(unittest.TestCase):
                 "version": {
                     "number": 18}})
 
+    def test_updates_a_page_parent_while_preserving_title_and_body(self) -> None:
+        updated = page_fixture()
+        updated["parentId"] = "987654"
+        updated["version"] = {"number": 18}
+        transport = MockTransport([MockResponse.from_json(updated)])
+        client = APIClient("example.atlassian.net", "user", "token", transport=transport)
+        page = RemotePage.from_json(client, page_fixture())
+
+        result = page.update(page.body, parent_id="987654")
+
+        self.assertEqual(result.parent_id, "987654")
+        request = transport.requests[0]
+        self.assertEqual(json.loads(request.body)["title"], "Example page")
+        self.assertEqual(json.loads(request.body)["parentId"], "987654")
+        self.assertEqual(json.loads(request.body)["body"]["value"], page.body)
+
     def test_creates_an_empty_child_page(self) -> None:
         transport = MockTransport([MockResponse.from_json(page_fixture())])
         client = APIClient("example.atlassian.net", "user", "token", transport=transport)

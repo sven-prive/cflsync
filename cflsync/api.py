@@ -84,23 +84,24 @@ class RemotePage:
 
         return cls(client, id, title, version, body, space_id, parent_id)
 
-    def update(self, body: str, title: str | None = None) -> "RemotePage":
+    def update(self, body: str, title: str | None = None, parent_id: str | None = None) -> "RemotePage":
         """Update this page using its current version for optimistic concurrency."""
         if title is None:
             title = self.title
 
-        response = self._client.make_json_request(
-            "PUT",
-            f"/pages/{self.id}",
-            json_body={
-                "id": self.id,
-                "status": "current",
-                "title": title,
-                "body": {
-                    "representation": "atlas_doc_format",
-                    "value": body},
-                "version": {
-                    "number": self.version + 1}})
+        request = {
+            "id": self.id,
+            "status": "current",
+            "title": title,
+            "body": {
+                "representation": "atlas_doc_format",
+                "value": body},
+            "version": {
+                "number": self.version + 1}}
+        if parent_id is not None:
+            request["parentId"] = parent_id
+
+        response = self._client.make_json_request("PUT", f"/pages/{self.id}", json_body=request)
         return RemotePage.from_json(self._client, self._client._json_object(response))
 
     def attachments(self) -> list["RemoteAttachment"]:
