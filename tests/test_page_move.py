@@ -78,8 +78,7 @@ class TestPageMove(unittest.TestCase):
             MockResponse.from_json(source),
             MockResponse.from_json(parent),
             MockResponse.from_json(parent),
-            MockResponse.from_json({"results": [attachment_fixture()]}),
-            update_response, ]
+            MockResponse.from_json({"results": [attachment_fixture()]}), update_response, ]
         return self._run(workarea, lambda: PageMoveCommand().run("123456", parent["id"]), responses)
 
     def _snapshot(self, workarea):
@@ -102,9 +101,9 @@ class TestPageMove(unittest.TestCase):
             self.assertEqual(
                 {
                     path: value
-                    for path, value in after.items() if not path.startswith(".cflsync/cache/")}, {
+                    for path, value in after.items() if not path.replace("\\", "/").startswith(".cflsync/cache/")}, {
                         path: value
-                        for path, value in before.items() if not path.startswith(".cflsync/cache/")})
+                        for path, value in before.items() if not path.replace("\\", "/").startswith(".cflsync/cache/")})
             self.assertEqual(state.page.version, 18)
             self.assertEqual(state.page.title, "Example page")
             self.assertEqual(state.page.directory, "Example page")
