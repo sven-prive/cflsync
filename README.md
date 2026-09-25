@@ -44,6 +44,7 @@ cflsync page pull [-f | --force] PAGE_REF
 cflsync page push [-f | --force] PAGE_REF
 cflsync page rename PAGE_REF TITLE
 cflsync page move PAGE_REF NEW_PARENT_REF
+cflsync page remove [-f | --force] PAGE_REF
 cflsync page status PAGE_REF
 ```
 
@@ -63,6 +64,10 @@ generated heading, and title-derived local directory as one explicit operation.
 Use `page move PAGE_REF NEW_PARENT_REF` to change a synchronized page's remote
 parent. The new parent must exist remotely in the same Confluence space; the
 current loose-page workarea does not move the local page directory.
+
+Use `page remove PAGE_REF` to delete a managed local page and its remote page.
+It asks for confirmation unless `--force` is supplied. If the remote page no
+longer exists, it removes only the local page and cache state.
 
 Use `cflsync --help` for top-level help, `cflsync page --help` for page-command
 help, and `cflsync page COMMAND --help` for a command's arguments.

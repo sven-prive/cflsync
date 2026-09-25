@@ -407,6 +407,17 @@ class Workarea:
 
         return directory
 
+    def remove_page(self, state: PageState) -> None:
+        """Remove one complete managed page directory."""
+        directory = self.page_directory(state)
+        if _is_windows() and _current_directory_is_inside(directory):
+            raise Workarea.Error("cannot remove a page directory while it is the current directory; run cflsync from outside it")
+
+        try:
+            shutil.rmtree(directory)
+        except OSError as error:
+            raise Workarea.Error(f"cannot remove managed page directory: {error}") from error
+
     def page_directory_target(self, state: PageState) -> Path:
         """Return a safe, unoccupied target path for a page directory."""
         directory = self._page_directory_path(state.page.directory)
@@ -688,6 +699,25 @@ class PageRef:
 
         pages = [page for page in api.find_pages_by_title(text) if page.title == text]
         return cls(_one_page_ref_id([page.id for page in pages], f"title '{text}'"))
+
+    @classmethod
+    def resolve_local(cls, value: str | Path, workarea: Workarea, cwd: Path | None = None) -> "PageRef":
+        """Resolve a local managed page path, ID, or title without remote access."""
+        text = str(value)
+        path = _page_ref_path(value, cwd)
+        if path.exists():
+            return cls._from_path(path, workarea)
+
+        paths = workarea.page_state_paths()
+        states = {page_id: PageState.load(path) for page_id, path in paths.items()}
+        if text.isdigit() and text in states:
+            return cls(text)
+
+        cached_ids = [state.page.id for state in states.values() if state.page.title == text]
+        if cached_ids:
+            return cls(_one_page_ref_id(cached_ids, f"cached title '{text}'"))
+
+        raise PageRefError(f"no managed local page matches '{text}'")
 
     @classmethod
     def _from_path(cls, path: Path, workarea: Workarea) -> "PageRef":

@@ -145,6 +145,17 @@ class TestAPIClientPageOperations(unittest.TestCase):
         self.assertEqual(json.loads(request.body)["parentId"], "987654")
         self.assertEqual(json.loads(request.body)["body"]["value"], page.body)
 
+    def test_deletes_a_page(self) -> None:
+        transport = MockTransport([MockResponse(204, {}, b"")])
+        client = APIClient("example.atlassian.net", "user", "token", transport=transport)
+        page = RemotePage.from_json(client, page_fixture())
+
+        page.delete()
+
+        request = transport.requests[0]
+        self.assertEqual(request.method, "DELETE")
+        self.assertEqual(request.path, "/pages/123456")
+
     def test_creates_an_empty_child_page(self) -> None:
         transport = MockTransport([MockResponse.from_json(page_fixture())])
         client = APIClient("example.atlassian.net", "user", "token", transport=transport)

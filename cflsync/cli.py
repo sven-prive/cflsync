@@ -17,7 +17,7 @@ from collections.abc import Sequence
 from getpass import getpass
 from pathlib import Path
 
-from .api import APIClient
+from .api import APIClient, APIError
 from .config import Config, Profile
 from .convert import ADFToMarkdownConverter, MarkdownToADFConverter, PandocRunner
 from .errors import SyncError
@@ -418,6 +418,63 @@ class PageMoveCommand:
         except SyncError as error:
             raise SyncError(f"moved page '{page.id}' remotely but could not update local state: {error}") from error
 
+
+class PageRemoveCommand:
+
+    def configure(self, subparsers: _SubParsersAction[ArgumentParser]) -> None:
+        page_remove_parser = subparsers.add_parser("remove", help="remove a managed Confluence Cloud page")
+        page_remove_parser.add_argument("-f", "--force", action="store_true", help="remove without confirmation")
+        page_remove_parser.add_argument("page_ref", help="managed page ID, title, page.md file, or page directory")
+        page_remove_parser.set_defaults(command=self)
+
+    def __call__(self, args: Namespace) -> int:
+        return self.run(args.page_ref, force=args.force)
+
+    def run(self, page_ref: str, force: bool = False) -> int:
+        try:
+            workarea, api = _open_workarea()
+            reference = PageRef.resolve_local(page_ref, workarea)
+            cache_path = workarea.cache_path(reference.page_id)
+            if not cache_path.exists():
+                raise SyncError(f"page '{reference.page_id}' is not managed in this workarea")
+
+            state = PageState.load(cache_path)
+            workarea.page_directory(state)
+            try:
+                page = api.get_page(reference.page_id)
+            except APIError as error:
+                if error.status != 404:
+                    raise
+                page = None
+
+            if page is not None:
+                changes = PageInspector(PandocRunner()).inspect(workarea.page_directory(state), state, page, page.attachments())
+                if changes.locally or changes.remotely:
+                    raise SyncError(f"page '{page.id}' has local or remote changes; remove conflicts")
+
+            if not force and not self._confirm(state, remote_exists=page is not None):
+                return 0
+
+            if page is not None:
+                page.delete()
+
+            try:
+                workarea.remove_page(state)
+                cache_path.unlink()
+            except (OSError, SyncError) as error:
+                scope = "removed remotely but could not remove local state" if page is not None else "could not remove local state"
+                raise SyncError(f"page '{state.page.id}' {scope}: {error}") from error
+        except (OSError, UnicodeError) as error:
+            raise SyncError(f"cannot remove page: {error}") from error
+
+        return 0
+
+    def _confirm(self, state: PageState, remote_exists: bool) -> bool:
+        scope = "remote and local copy of" if remote_exists else "local copy of"
+        response = input(f"Remove {scope} page '{state.page.title}' ({state.page.id})? [y/N] ")
+        return response.lower() in {"y", "yes"}
+
+
 class PageStatusCommand:
 
     def configure(self, subparsers: _SubParsersAction[ArgumentParser]) -> None:
@@ -470,6 +527,7 @@ class PageCommand:
         PagePushCommand().configure(page_subparsers)
         PageRenameCommand().configure(page_subparsers)
         PageMoveCommand().configure(page_subparsers)
+        PageRemoveCommand().configure(page_subparsers)
         PageStatusCommand().configure(page_subparsers)
 
     def __call__(self, args: Namespace) -> int:

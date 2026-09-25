@@ -12,7 +12,9 @@ import unittest
 from unittest.mock import patch
 
 from cflsync import SyncError
-from cflsync.cli import PageCreateCommand, PageMoveCommand, PagePullCommand, PagePushCommand, PageRenameCommand, PageStatusCommand, main
+from cflsync.cli import (
+    PageCreateCommand, PageMoveCommand, PagePullCommand, PagePushCommand, PageRemoveCommand, PageRenameCommand, PageStatusCommand,
+    main)
 
 
 class TestPageCommandDispatch(unittest.TestCase):
@@ -38,6 +40,13 @@ class TestPageCommandDispatch(unittest.TestCase):
         self.assertEqual(result, 0)
         run.assert_called_once_with("123456", "987654")
 
+    def test_dispatches_page_remove_arguments_to_its_command(self) -> None:
+        with patch.object(PageRemoveCommand, "run", return_value=0) as run:
+            result = main(["cflsync", "page", "remove", "123456"])
+
+        self.assertEqual(result, 0)
+        run.assert_called_once_with("123456", force=False)
+
     def test_dispatches_page_reference_arguments_to_page_commands(self) -> None:
         cases = [("pull", PagePullCommand), ("push", PagePushCommand), ("status", PageStatusCommand)]
         for command_name, command_type in cases:
@@ -52,7 +61,7 @@ class TestPageCommandDispatch(unittest.TestCase):
                     run.assert_called_once_with("Example page", force=False)
 
     def test_dispatches_force_options(self) -> None:
-        for command_name, command_type in [("pull", PagePullCommand), ("push", PagePushCommand)]:
+        for command_name, command_type in [("pull", PagePullCommand), ("push", PagePushCommand), ("remove", PageRemoveCommand)]:
             for option in ["-f", "--force"]:
                 with self.subTest(command=command_name, option=option):
                     with patch.object(command_type, "run", return_value=0) as run:
@@ -68,7 +77,7 @@ class TestPageCommandDispatch(unittest.TestCase):
                 main(["cflsync", "page", "--help"])
 
         self.assertEqual(raised.exception.code, 0)
-        for command_name in ["create", "pull", "push", "rename", "move", "status"]:
+        for command_name in ["create", "pull", "push", "rename", "move", "remove", "status"]:
             self.assertIn(command_name, output.getvalue())
 
 

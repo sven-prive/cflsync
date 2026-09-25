@@ -10,6 +10,7 @@ cflsync page pull [-f | --force] PAGE_REF
 cflsync page push [-f | --force] PAGE_REF
 cflsync page rename PAGE_REF TITLE
 cflsync page move PAGE_REF NEW_PARENT_REF
+cflsync page remove [-f | --force] PAGE_REF
 cflsync page status PAGE_REF
 ```
 
@@ -31,6 +32,12 @@ in sync. `NEW_PARENT_REF` resolves to a remote page, which need not be managed
 locally. The command changes the remote parent but leaves the current
 loose-page workarea's directory and Markdown unchanged.
 
+`page remove [-f | --force] PAGE_REF` requires a managed local page directory
+and cache entry. It confirms removal unless `--force` is supplied. When the
+remote page exists, the command requires it to be synchronized, deletes it,
+then removes the local directory and cache entry. A remote 404 is treated as
+an already-removed remote page, so only the local copy is removed.
+
 `page create PARENT_PAGE_REF TITLE` resolves `PARENT_PAGE_REF`, creates an
 empty child page remotely, then runs the equivalent of `page pull` for its
 returned ID. It has no offline mode, so each local page begins with
@@ -39,9 +46,9 @@ to a directory containing `.cflsync/profile`.
 
 ## Page references
 
-`page create`, `page pull`, `page push`, `page rename`, `page move`, and `page status` accept a page
-reference: a numeric page ID, page title, local GFM file, or local page
-directory. The resolver classifies the argument in this order:
+`page create`, `page pull`, `page push`, `page rename`, `page move`, and `page
+status` accept a page reference: a numeric page ID, page title, local GFM file,
+or local page directory. The resolver classifies the argument in this order:
 
 1. An existing filesystem path is a local reference. A file must be managed
    `page.md`; a directory must contain that file. Its cache entry supplies the
@@ -57,6 +64,9 @@ matches are errors, and ambiguity reports available page IDs.
 
 All successful reference forms produce a page ID. Subsequent command
 semantics, cache keys, concurrency checks, and conflict handling are identical.
+
+`page remove` accepts the same forms, but each must resolve to cached local
+state; it does not resolve an ID or title remotely.
 
 ## Workarea and local representation
 
@@ -215,6 +225,13 @@ resulting hierarchy; a rejected update identifies both the source and target
 page IDs. The local directory and page content remain unchanged; cache state
 records the returned page version last. If cache writing fails after the remote
 move, the command reports incomplete synchronization and a pull can recover it.
+
+`page remove` resolves only local managed state, checks the remote page if it
+still exists, and asks for confirmation immediately before deletion. `--force`
+only bypasses that prompt. A remote deletion failure leaves the local directory
+and cache intact. After a successful remote deletion, it removes the complete
+local directory, including unmanaged files, then its cache entry. If the remote
+page is already absent, it performs that local cleanup without a remote delete.
 
 `page pull` stages downloads, conversion, attachment-path validation, and
 content validation in a temporary directory. For an existing page it preserves

@@ -104,6 +104,10 @@ class RemotePage:
         response = self._client.make_json_request("PUT", f"/pages/{self.id}", json_body=request)
         return RemotePage.from_json(self._client, self._client._json_object(response))
 
+    def delete(self) -> None:
+        """Delete this page."""
+        self._client.make_request("DELETE", f"/pages/{self.id}")
+
     def attachments(self) -> list["RemoteAttachment"]:
         """Return every attachment belonging to this page."""
         values = self._client.make_paginated_request("GET", f"/pages/{self.id}/attachments")
