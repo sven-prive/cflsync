@@ -28,12 +28,22 @@ from .workarea import AttachmentMetadata, MediaResolver, PageMetadata, PageRef, 
 class InitCommand:
 
     def configure(self, subparsers: _SubParsersAction[ArgumentParser]) -> None:
-        init_parser = subparsers.add_parser("init", help="initialise a cflsync workarea in the current directory")
+        init_parser = subparsers.add_parser(
+            "init", help="initialise a cflsync workarea in the current directory, anchored at a root page")
         init_parser.add_argument("-p", "--profile", default="default", help="use PROFILE instead of 'default'")
+        init_parser.add_argument("root_page_ref", help="root page ID or title")
         init_parser.set_defaults(command=self)
 
     def __call__(self, args: Namespace) -> int:
-        Workarea.init(Path.cwd(), args.profile)
+        return self.run(args.root_page_ref, args.profile)
+
+    def run(self, root_page_ref: str, profile: str = "default") -> int:
+        api = _api_client(profile)
+        reference = PageRef.resolve_remote(root_page_ref, api)
+        page = api.get_page(reference.page_id)
+        Workarea.init(Path.cwd(), page.id, profile)
+        print(f"Initialised a workarea anchored at page '{page.id}' ({page.title}), using profile '{profile}'.")
+        print(f"Pull the root page with 'cflsync page pull {page.id}'.")
         return 0
 
 
@@ -556,11 +566,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _open_workarea():
     workarea = Workarea.find(Path.cwd())
-    profile = Config.find().profiles.get(workarea.profile)
-    if profile is None:
-        raise SyncError(f"credential profile '{workarea.profile}' does not exist")
+    return workarea, _api_client(workarea.profile)
 
-    return workarea, APIClient(profile.hostname, profile.username, profile.apitoken)
+
+def _api_client(profile_name):
+    profile = Config.find().profiles.get(profile_name)
+    if profile is None:
+        raise SyncError(f"credential profile '{profile_name}' does not exist")
+
+    return APIClient(profile.hostname, profile.username, profile.apitoken)
 
 
 def _print_usage(parser: ArgumentParser) -> int:

@@ -19,6 +19,7 @@ class TestTemporaryWorkarea(unittest.TestCase):
             root = workarea.root_dir
             self.assertTrue(root.is_dir())
             self.assertEqual(workarea.profile, "test-profile")
+            self.assertEqual(workarea.root_page_id, "123456")
             self.assertTrue((root / ".cflsync" / "cache").is_dir())
             self.assertFalse((root / ".git").exists())
 

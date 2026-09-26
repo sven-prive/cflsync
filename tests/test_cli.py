@@ -13,8 +13,28 @@ from unittest.mock import patch
 
 from cflsync import SyncError
 from cflsync.cli import (
-    PageCreateCommand, PageMoveCommand, PagePullCommand, PagePushCommand, PageRemoveCommand, PageRenameCommand, PageStatusCommand,
-    main)
+    InitCommand, PageCreateCommand, PageMoveCommand, PagePullCommand, PagePushCommand, PageRemoveCommand, PageRenameCommand,
+    PageStatusCommand, main)
+
+
+class TestInitCommandDispatch(unittest.TestCase):
+
+    def test_dispatches_init_arguments_to_its_command(self) -> None:
+        for arguments, expected in [(["init", "123456"], ("123456", "default")), (["init", "-p", "work",
+                                                                                   "Root page"], ("Root page", "work"))]:
+            with self.subTest(arguments=arguments):
+                with patch.object(InitCommand, "run", return_value=0) as run:
+                    result = main(["cflsync", *arguments])
+
+                self.assertEqual(result, 0)
+                run.assert_called_once_with(*expected)
+
+    def test_requires_a_root_page_reference(self) -> None:
+        with redirect_stderr(StringIO()) as errors:
+            with self.assertRaises(SystemExit):
+                main(["cflsync", "init"])
+
+        self.assertIn("root_page_ref", errors.getvalue())
 
 
 class TestPageCommandDispatch(unittest.TestCase):

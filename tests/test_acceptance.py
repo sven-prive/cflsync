@@ -335,7 +335,7 @@ class TestRecordedAcceptanceWorkflow(unittest.TestCase):
             self.assertEqual(status, 0)
             self.assertEqual(errors, "")
             self.assertTrue(config.path.is_file())
-            self.assertEqual(self._run(root, config, client, ["init"])[0], 0)
+            self.assertEqual(self._run(root, config, client, ["init", "456789"])[0], 0)
             self.assertEqual(self._run(root, config, client, ["page", "create", "456789", "Acceptance page"])[0], 0)
 
             status, output, errors = self._run(root, config, client, ["page", "status", transport.page_id])
@@ -390,7 +390,7 @@ class TestRecordedAcceptanceWorkflow(unittest.TestCase):
             config = Config(root / "credentials.json", {"default": Profile("fixture.invalid", "fixture", "token")})
             transport = RecordedConfluenceTransport()
             client = APIClient("fixture.invalid", "fixture", "token", transport=transport)
-            self.assertEqual(self._run(root, config, client, ["init"])[0], 0)
+            self.assertEqual(self._run(root, config, client, ["init", "456789"])[0], 0)
             self.assertEqual(self._run(root, config, client, ["page", "create", "456789", "Acceptance page"])[0], 0)
 
             page = root / "Acceptance page" / "page.md"

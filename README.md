@@ -38,7 +38,7 @@ a checkout as `uv run python -m cflsync`.
 
 ```text
 cflsync auth [-p PROFILE] [--list | --delete]
-cflsync init [-p PROFILE]
+cflsync init [-p PROFILE] ROOT_PAGE_REF
 cflsync page create PARENT_PAGE_REF TITLE
 cflsync page pull [-f | --force] PAGE_REF
 cflsync page push [-f | --force] PAGE_REF
@@ -50,6 +50,11 @@ cflsync page status PAGE_REF
 
 `PAGE_REF` may be a numeric Confluence page ID, an exact page title, a managed
 local `page.md` file, or a managed page directory.
+
+`init ROOT_PAGE_REF` creates a workarea anchored at a root page, given as a page
+ID or exact title; it contacts Confluence with the profile's credentials, and
+does not pull any page. Workareas created by earlier cflsync versions are not
+anchored and are refused; create a new workarea with `init` instead.
 
 Pull reports when the page is already in sync. Use `page pull --force PAGE_REF`
 to prefer remote content, overwriting local edits to managed files even when

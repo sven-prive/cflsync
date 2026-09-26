@@ -55,10 +55,86 @@ class TestWorkareaInitialization(unittest.TestCase):
             root = Path(temporary_dir)
             with patch.object(Path, "open", fail_profile_open):
                 with self.assertRaisesRegex(Workarea.Error, "cannot initialise"):
-                    Workarea.init(root)
+                    Workarea.init(root, "123456")
 
             self.assertFalse((root / ".cflsync").exists())
             self.assertFalse(any(path.name.startswith(".cflsync-init-") for path in root.iterdir()))
+
+    def test_records_the_root_page_and_profile(self) -> None:
+        with TemporaryDirectory(prefix="cflsync-init-") as temporary_dir:
+            root = Path(temporary_dir)
+
+            Workarea.init(root, "789012", "work")
+
+            workarea = Workarea.find(root)
+            self.assertEqual((workarea.root_page_id, workarea.profile), ("789012", "work"))
+            self.assertEqual((root / ".cflsync" / "root").read_text(encoding="utf-8"), "789012\n")
+            self.assertEqual(list(workarea.cache_dir.iterdir()), [])
+
+    def test_failed_root_write_leaves_no_partial_workarea(self) -> None:
+        original_open = Path.open
+
+        def fail_root_open(path, *args, **kwargs):
+            if path.name == "root":
+                raise OSError("injected root write failure")
+
+            return original_open(path, *args, **kwargs)
+
+        with TemporaryDirectory(prefix="cflsync-init-") as temporary_dir:
+            root = Path(temporary_dir)
+            with patch.object(Path, "open", fail_root_open):
+                with self.assertRaisesRegex(Workarea.Error, "cannot initialise"):
+                    Workarea.init(root, "123456")
+
+            self.assertEqual(list(root.iterdir()), [])
+
+    def test_rejects_a_non_numeric_root_page_id(self) -> None:
+        with TemporaryDirectory(prefix="cflsync-init-") as temporary_dir:
+            root = Path(temporary_dir)
+            for root_page_id in ["", "12a", "１２"]:
+                with self.subTest(root_page_id=root_page_id):
+                    with self.assertRaisesRegex(Workarea.Error, "root page ID must be numeric"):
+                        Workarea.init(root, root_page_id)
+
+            self.assertEqual(list(root.iterdir()), [])
+
+    def test_refuses_to_initialise_inside_any_existing_workarea(self) -> None:
+        with temporary_workarea() as workarea:
+            (workarea.cflsync_dir / "root").unlink()
+            nested = workarea.root_dir / "nested"
+            nested.mkdir()
+            for path in [workarea.root_dir, nested]:
+                with self.subTest(path=path):
+                    with self.assertRaisesRegex(Workarea.Error, "already part of a cflsync workarea"):
+                        Workarea.init(path, "789012")
+
+            self.assertFalse((nested / ".cflsync").exists())
+
+
+class TestWorkareaFormat(unittest.TestCase):
+
+    def test_refuses_a_version_1_workarea_without_a_root_page(self) -> None:
+        with temporary_workarea() as workarea:
+            (workarea.cflsync_dir / "root").unlink()
+
+            with self.assertRaisesRegex(Workarea.Error, "is a version-1 cflsync workarea.*'cflsync init ROOT_PAGE_REF'"):
+                Workarea.find(workarea.root_dir)
+
+    def test_refuses_an_invalid_root_file(self) -> None:
+        for content in ["", "\n", "abc\n", "12 34\n", "12\n34\n"]:
+            with self.subTest(content=content):
+                with temporary_workarea() as workarea:
+                    (workarea.cflsync_dir / "root").write_text(content, encoding="utf-8")
+
+                    with self.assertRaisesRegex(Workarea.Error, "must contain one numeric page ID"):
+                        Workarea.find(workarea.root_dir)
+
+    def test_finds_the_workarea_from_a_nested_directory(self) -> None:
+        with temporary_workarea() as workarea:
+            nested = workarea.root_dir / "Page" / "Child"
+            nested.mkdir(parents=True)
+
+            self.assertEqual(Workarea.find(nested).root_dir, workarea.root_dir)
 
 
 class TestWorkareaPageDirectory(unittest.TestCase):

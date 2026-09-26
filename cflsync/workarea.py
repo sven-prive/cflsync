@@ -317,20 +317,19 @@ class Workarea:
         self.root_dir = root_dir.resolve()
 
     @classmethod
-    def init(cls, p: Path, profile: str = "default"):
-        """Initialise an empty workarea at path p using the named auth profile."""
+    def init(cls, p: Path, root_page_id: str, profile: str = "default"):
+        """Initialise an empty workarea at path p, anchored at a root page and using the named auth profile."""
         if not p.is_dir():
             raise Workarea.Error(f"'{p}' is not a directory")
+        if re.fullmatch(r"[0-9]+", root_page_id) is None:
+            raise Workarea.Error("root page ID must be numeric")
         if not profile or "\n" in profile or "\r" in profile:
             raise Workarea.Error("profile must be a non-empty single-line name")
 
-        try:
-            wa = cls.find(p)
-        except Workarea.Error:
-            wa = None
-
-        if wa is not None:
-            raise Workarea.Error(f"'{p}' is already part of a cflsync workarea ({wa.root_dir})")
+        # Any existing workarea counts, including a version-1 workarea that find() refuses.
+        existing = cls._locate(p)
+        if existing is not None:
+            raise Workarea.Error(f"'{p}' is already part of a cflsync workarea ({existing})")
 
         cflsync_dir = p / ".cflsync"
         if cflsync_dir.exists():
@@ -344,13 +343,14 @@ class Workarea:
             if not _is_windows():
                 cache_dir.chmod(0o700)
 
-            profile_path = staging / "profile"
-            with profile_path.open("w", encoding="utf-8") as profile_file:
-                profile_file.write(f"{profile}\n")
-                profile_file.flush()
-                os.fsync(profile_file.fileno())
-            if not _is_windows():
-                profile_path.chmod(0o600)
+            for name, value in [("profile", profile), ("root", root_page_id)]:
+                path = staging / name
+                with path.open("w", encoding="utf-8") as file:
+                    file.write(f"{value}\n")
+                    file.flush()
+                    os.fsync(file.fileno())
+                if not _is_windows():
+                    path.chmod(0o600)
 
             os.replace(staging, cflsync_dir)
         except OSError as error:
@@ -373,6 +373,25 @@ class Workarea:
     def profile(self) -> str:
         with open(self.cflsync_dir / "profile", "r") as f:
             return f.read().rstrip("\r\n")
+
+    @property
+    def root_page_id(self) -> str:
+        """Return the ID of the root page that anchors this workarea."""
+        path = self.cflsync_dir / "root"
+        try:
+            text = path.read_text(encoding="utf-8")
+        except FileNotFoundError as error:
+            raise Workarea.Error(
+                f"'{self.root_dir}' is a version-1 cflsync workarea, which this version of cflsync does not support; "
+                "create a new workarea anchored at a root page with 'cflsync init ROOT_PAGE_REF'") from error
+        except (OSError, UnicodeError) as error:
+            raise Workarea.Error(f"cannot read '{path}': {filesystem_error_message(error)}") from error
+
+        root_page_id = text.removesuffix("\n")
+        if re.fullmatch(r"[0-9]+", root_page_id) is None:
+            raise Workarea.Error(f"'{path}' must contain one numeric page ID")
+
+        return root_page_id
 
     def cache_path(self, page_id: str) -> Path:
         if not page_id.isdigit():
@@ -702,15 +721,26 @@ class Workarea:
 
     @classmethod
     def find(cls, p: Path):
-        """Locate the workarea, if any, that contains path p."""
+        """Locate the workarea that contains path p, refusing a workarea that is not anchored at a root page."""
+        dir = cls._locate(p)
+        if dir is None:
+            raise Workarea.Error(f"'{p}' is not part of a cflsync workarea")
+
+        workarea = cls(dir)
+        # Reading the root page ID validates the workarea format.
+        workarea.root_page_id
+        return workarea
+
+    @classmethod
+    def _locate(cls, p):
         dir = (p if p.is_dir() else p.parent).resolve()
         while True:
             cflsync_dir = dir / ".cflsync"
             if cflsync_dir.is_dir() and (cflsync_dir / "profile").is_file():
-                return cls(dir)
+                return dir
 
             if dir == dir.parent:
-                raise Workarea.Error(f"'{p}' is not part of a cflsync workarea")
+                return None
 
             dir = dir.parent
 
@@ -733,7 +763,7 @@ class PageRef:
         if path.exists():
             return cls._from_path(path, workarea)
         if text.isdigit():
-            return cls(api.get_page(text).id)
+            return cls.resolve_remote(text, api)
 
         paths = workarea.page_state_paths()
         states = {page_id: PageState.load(path) for page_id, path in paths.items()}
@@ -741,8 +771,16 @@ class PageRef:
         if cached_ids:
             return cls(_one_page_ref_id(cached_ids, f"cached title '{text}'"))
 
-        pages = [page for page in api.find_pages_by_title(text) if page.title == text]
-        return cls(_one_page_ref_id([page.id for page in pages], f"title '{text}'"))
+        return cls.resolve_remote(text, api)
+
+    @classmethod
+    def resolve_remote(cls, value: str, api) -> "PageRef":
+        """Resolve a page ID or title to one Confluence page ID through the API, without a workarea."""
+        if value.isdigit():
+            return cls(api.get_page(value).id)
+
+        pages = [page for page in api.find_pages_by_title(value) if page.title == value]
+        return cls(_one_page_ref_id([page.id for page in pages], f"title '{value}'"))
 
     @classmethod
     def resolve_local(cls, value: str | Path, workarea: Workarea, cwd: Path | None = None) -> "PageRef":

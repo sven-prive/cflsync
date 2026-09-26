@@ -4,7 +4,7 @@
 
 ```text
 cflsync auth [-p PROFILE] [--list | --delete]
-cflsync init [-p PROFILE]
+cflsync init [-p PROFILE] ROOT_PAGE_REF
 cflsync page create PARENT_PAGE_REF TITLE
 cflsync page pull [-f | --force] PAGE_REF
 cflsync page push [-f | --force] PAGE_REF
@@ -14,8 +14,12 @@ cflsync page remove [-f | --force] PAGE_REF
 cflsync page status PAGE_REF
 ```
 
-`init` creates `.cflsync/`, `.cflsync/cache/`, and `.cflsync/profile`; it
-neither resolves nor records a Confluence page. `page pull` resolves
+`init` resolves `ROOT_PAGE_REF`, a page ID or an exact page title, through
+Confluence with the profile's credentials. It then creates `.cflsync/` with an
+empty `cache/`, `profile`, and `root`, which records the root page ID, as one
+atomic installation. A failed lookup leaves no `.cflsync/` behind. `init`
+refuses a directory inside any existing workarea, and does not pull pages.
+`page pull` resolves
 `PAGE_REF` and creates or updates its page directory and cache entry. `page
 push` finds the identified page's local state at
 `.cflsync/cache/<page-id>.json`.
@@ -42,7 +46,9 @@ an already-removed remote page, so only the local copy is removed.
 empty child page remotely, then runs the equivalent of `page pull` for its
 returned ID. It has no offline mode, so each local page begins with
 Confluence-authoritative metadata. Commands locate a workarea by walking upward
-to a directory containing `.cflsync/profile`.
+to a directory containing `.cflsync/profile`. A workarea without a valid
+`.cflsync/root` is a version-1 workarea; every command except `auth` refuses
+it and explains how to create a new, anchored workarea.
 
 ## Page references
 
@@ -78,6 +84,7 @@ directories. The initial layout is:
 <workarea>/
   .cflsync/
     profile
+    root
     cache/
       123456.json
   <page-title>/
@@ -88,6 +95,7 @@ directories. The initial layout is:
 
 `page.md` contains GitHub Flavored Markdown (GFM); `_attachments` contains
 downloaded attachment files. `.cflsync/profile` selects the credential profile.
+`.cflsync/root` holds the root page ID as one numeric line.
 `.cflsync/cache/<page-id>.json` is private synchronization state, not page
 content.
 

@@ -24,11 +24,11 @@ from cflsync import APIClient, AttachmentMetadata, PageMetadata, PageState, Tran
 
 
 @contextmanager
-def temporary_workarea(profile: str = "default") -> Iterator[Workarea]:
+def temporary_workarea(profile: str = "default", root_page_id: str = "123456") -> Iterator[Workarea]:
     """Yield an initialized workarea rooted in a directory removed on exit."""
     with TemporaryDirectory(prefix="cflsync-test-") as temporary_dir:
         root = Path(temporary_dir)
-        yield Workarea.init(root, profile)
+        yield Workarea.init(root, root_page_id, profile)
 
 
 def example_page_state(page_id: str = "123456", title: str = "Example page", directory: str = "Example page") -> PageState:
