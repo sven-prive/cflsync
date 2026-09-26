@@ -44,6 +44,9 @@ class TestPageCreate(unittest.TestCase):
 
         return [
             MockResponse.from_json(page),
+            MockResponse.from_json({"results": [{
+                "id": "456789",
+                "type": "page"}]}),
             MockResponse.from_json(page),
             MockResponse.from_json({"results": attachments}), *[MockResponse(200, {}, b"PNG") for attachment in attachments], ]
 
@@ -59,7 +62,7 @@ class TestPageCreate(unittest.TestCase):
                 self.assertEqual(transport.requests, [])
 
     def test_creates_a_child_page_and_installs_it_like_a_first_pull(self) -> None:
-        with temporary_workarea() as workarea:
+        with temporary_workarea(root_page_id="456789") as workarea:
             page = created_page_fixture()
             parent = page_fixture("456789", "Parent page")
             responses = [
@@ -84,7 +87,7 @@ class TestPageCreate(unittest.TestCase):
             self.assertEqual(body["title"], "New page")
 
     def test_failed_creation_leaves_no_local_state(self) -> None:
-        with temporary_workarea() as workarea:
+        with temporary_workarea(root_page_id="456789") as workarea:
             parent = page_fixture("456789", "Parent page")
             responses = [
                 MockResponse.from_json(parent),
@@ -98,7 +101,7 @@ class TestPageCreate(unittest.TestCase):
             self.assertEqual(list(workarea.root_dir.glob("*")), [workarea.root_dir / ".cflsync"])
 
     def test_resolves_a_parent_title_before_creation(self) -> None:
-        with temporary_workarea() as workarea:
+        with temporary_workarea(root_page_id="456789") as workarea:
             page = created_page_fixture()
             parent = page_fixture("456789", "Parent page")
             responses = [
@@ -113,7 +116,7 @@ class TestPageCreate(unittest.TestCase):
             self.assertEqual(transport.requests[2].json_body()["parentId"], "456789")
 
     def test_resolves_a_managed_parent_directory_before_creation(self) -> None:
-        with temporary_workarea() as workarea:
+        with temporary_workarea(root_page_id="456789") as workarea:
             parent = page_fixture("456789", "Parent page")
             parent_state = example_page_state("456789", title="Parent page", directory="Parent page")
             parent_state.save(workarea.cache_path(parent_state.page.id))
@@ -130,7 +133,7 @@ class TestPageCreate(unittest.TestCase):
             self.assertEqual(transport.requests[1].json_body()["parentId"], "456789")
 
     def test_failed_follow_up_pull_reports_the_created_page(self) -> None:
-        with temporary_workarea() as workarea:
+        with temporary_workarea(root_page_id="456789") as workarea:
             page = created_page_fixture()
             parent = page_fixture("456789", "Parent page")
             responses = [
@@ -138,6 +141,9 @@ class TestPageCreate(unittest.TestCase):
                 MockResponse.from_json(parent),
                 MockResponse.from_json(page),
                 MockResponse.from_json(page),
+                MockResponse.from_json({"results": [{
+                    "id": "456789",
+                    "type": "page"}]}),
                 MockResponse.from_json(page),
                 MockResponse.from_json({"message": "attachments unavailable"}, 503),
                 MockResponse.from_json({"message": "attachments unavailable"}, 503), ]

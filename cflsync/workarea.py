@@ -831,21 +831,31 @@ class PageRef:
 
     @classmethod
     def resolve(cls, value: str | Path, workarea: Workarea, api, cwd: Path | None = None) -> "PageRef":
-        """Resolve a local path, page ID, or title to one Confluence page ID."""
+        """Resolve a local path, page ID, or title to one Confluence page ID in the workarea's tree.
+
+        Cached pages are in the tree. Any other page must be the root page or have it among its ancestors.
+        """
         text = str(value)
         path = _page_ref_path(value, cwd)
         if path.exists():
             return cls._from_path(path, workarea)
-        if text.isdigit():
-            return cls.resolve_remote(text, api)
 
-        paths = workarea.page_state_paths()
-        states = {page_id: PageState.load(path) for page_id, path in paths.items()}
+        states = _cached_states(workarea)
+        if text.isdigit():
+            page_id = api.get_page(text).id
+            if page_id not in states and not _is_in_workarea(page_id, workarea, api):
+                raise PageRefError(
+                    f"page '{page_id}' is not found in this workarea, which is anchored at page '{workarea.root_page_id}'")
+
+            return cls(page_id)
+
         cached_ids = [state.page.id for state in states.values() if state.page.title == text]
         if cached_ids:
-            return cls(_one_page_ref_id(cached_ids, f"cached title '{text}'"))
+            return cls(_one_cached_page_id(cached_ids, text, states, workarea))
 
-        return cls.resolve_remote(text, api)
+        pages = [page for page in api.find_pages_by_title(text) if page.title == text]
+        page_ids = [page.id for page in pages if _is_in_workarea(page.id, workarea, api)]
+        return cls(_one_page_ref_id(page_ids, f"title '{text}' in this workarea"))
 
     @classmethod
     def resolve_remote(cls, value: str, api) -> "PageRef":
@@ -864,55 +874,81 @@ class PageRef:
         if path.exists():
             return cls._from_path(path, workarea)
 
-        paths = workarea.page_state_paths()
-        states = {page_id: PageState.load(path) for page_id, path in paths.items()}
+        states = _cached_states(workarea)
         if text.isdigit() and text in states:
             return cls(text)
 
         cached_ids = [state.page.id for state in states.values() if state.page.title == text]
         if cached_ids:
-            return cls(_one_page_ref_id(cached_ids, f"cached title '{text}'"))
+            return cls(_one_cached_page_id(cached_ids, text, states, workarea))
 
         raise PageRefError(f"no managed local page matches '{text}'")
 
     @classmethod
     def _from_path(cls, path: Path, workarea: Workarea) -> "PageRef":
         try:
-            relative_path = path.relative_to(workarea.root_dir)
+            path.relative_to(workarea.root_dir)
         except ValueError as error:
             raise PageRefError(f"page path '{path}' is outside the workarea") from error
 
         if path.is_file():
             if path.name != CONTENT_FILENAME:
-                raise PageRefError(f"page file '{path}' is not named content.md")
+                raise PageRefError(f"page file '{path}' is not named {CONTENT_FILENAME}")
             directory = path.parent
-            relative_path = relative_path.parent
         elif path.is_dir():
             directory = path
             if not (directory / CONTENT_FILENAME).is_file():
-                raise PageRefError(f"page directory '{path}' does not contain content.md")
+                raise PageRefError(f"page directory '{path}' does not contain {CONTENT_FILENAME}")
         else:
             raise PageRefError(f"page path '{path}' is neither a file nor a directory")
 
-        if len(relative_path.parts) != 1:
-            raise PageRefError(f"page path '{path}' is not a managed page directory")
-        directory_name = relative_path.name
-        paths = workarea.page_state_paths()
-        states = {page_id: PageState.load(path) for page_id, path in paths.items()}
-        page_id = next((state.page.id for state in states.values() if state.page.directory == directory_name), None)
-        if page_id is None:
-            raise PageRefError(f"page path '{path}' is not managed by cflsync")
+        # A page is found by the location where page_directory() places it, which also covers nested directories.
+        for page_id, state in _cached_states(workarea).items():
+            if workarea.page_directory(state, must_exist=False) == directory:
+                return cls(page_id)
 
-        state = states[page_id]
-        if workarea.page_directory(state) != directory:
-            raise PageRefError(f"page path '{path}' does not match its cached page state")
-
-        return cls(page_id)
+        raise PageRefError(f"page path '{path}' is not managed by cflsync")
 
 
 def _page_ref_path(value: str | Path, cwd: Path | None) -> Path:
     base = cwd or Path.cwd()
     return (base / Path(value)).resolve()
+
+
+def _cached_states(workarea):
+    return {page_id: PageState.load(path) for page_id, path in workarea.page_state_paths().items()}
+
+
+def _is_in_workarea(page_id, workarea, api):
+    # A page is in the workarea's tree if it is the root page, or the root page is among its ancestors. Ancestors
+    # above the root may be folders; below the root, only pages are supported.
+    root_page_id = workarea.root_page_id
+    if page_id == root_page_id:
+        return True
+
+    ancestors = api.page_ancestors(page_id)
+    ancestor_ids = [ancestor.id for ancestor in ancestors]
+    if root_page_id not in ancestor_ids:
+        return False
+
+    for ancestor in ancestors[ancestor_ids.index(root_page_id) + 1:]:
+        if ancestor.type != "page":
+            raise SyncError(
+                f"page '{page_id}' is below {ancestor.type} '{ancestor.id}' in this workarea's tree; only pages are supported")
+
+    return True
+
+
+def _one_cached_page_id(page_ids, title, states, workarea):
+    if len(page_ids) > 1:
+        matches = []
+        for page_id in page_ids:
+            directory = workarea.page_directory(states[page_id], must_exist=False).relative_to(workarea.root_dir)
+            matches.append(f"{page_id} ({directory.as_posix()})")
+
+        raise PageRefError(f"multiple pages match cached title '{title}': {', '.join(matches)}")
+
+    return page_ids[0]
 
 
 def _one_page_ref_id(page_ids: list[str], description: str) -> str:

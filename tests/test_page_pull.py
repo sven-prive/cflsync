@@ -361,12 +361,30 @@ class TestPagePullParent(unittest.TestCase):
             self.assertEqual(PageState.load(workarea.cache_path("200")).page.parent_id, "100")
 
 
+class TestPagePullScope(unittest.TestCase):
+
+    def test_refuses_a_page_outside_the_tree_without_changes(self) -> None:
+        site = FakeConfluence()
+        site.add_page("100", "Root page")
+        site.add_page("200", "Outside page")
+        with temporary_workarea(root_page_id="100") as workarea:
+            config = SimpleNamespace(profiles={workarea.profile: Profile("example.atlassian.net", "user", "token")})
+            with patch("cflsync.cli.Path.cwd", return_value=workarea.root_dir):
+                with patch("cflsync.cli.Config.find", return_value=config):
+                    with patch("cflsync.cli.APIClient", return_value=site.client()):
+                        with self.assertRaisesRegex(SyncError, "page '200' is not found in this workarea"):
+                            PagePullCommand().run("200")
+
+            self.assertEqual([path.name for path in workarea.root_dir.iterdir()], [".cflsync"])
+            self.assertEqual(list(workarea.cache_dir.iterdir()), [])
+
+
 class TestPagePullDirectoryNames(unittest.TestCase):
 
     def test_pulls_pages_titled_like_reserved_entries_into_distinct_directories(self) -> None:
         site = FakeConfluence()
         site.add_page("100", "_attachments")
-        site.add_page("200", "content.md")
+        site.add_page("200", "content.md", parent_id="100")
         with temporary_workarea(root_page_id="100") as workarea:
             config = SimpleNamespace(profiles={workarea.profile: Profile("example.atlassian.net", "user", "token")})
             with patch("cflsync.cli.Path.cwd", return_value=workarea.root_dir):

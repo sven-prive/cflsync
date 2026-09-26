@@ -35,10 +35,11 @@ class TestPageMove(unittest.TestCase):
 
     def _site(self):
         site = FakeConfluence()
-        site.add_page("456789", "Current parent")
+        site.add_page("100", "Root page")
+        site.add_page("456789", "Current parent", parent_id="100")
         site.add_page("123456", "Example page", parent_id="456789", body=BODY, version=17)
         site.add_attachment("123456", "diagram.png", b"PNG")
-        site.add_page("987654", "New parent")
+        site.add_page("987654", "New parent", parent_id="100")
         return site
 
     def _run(self, workarea, command):
@@ -68,7 +69,7 @@ class TestPageMove(unittest.TestCase):
         return {path: value for path, value in snapshot.items() if not path.replace("\\", "/").startswith(".cflsync/cache/")}
 
     def test_moves_the_remote_page_and_updates_only_cached_version(self) -> None:
-        with temporary_workarea() as workarea:
+        with temporary_workarea(root_page_id="100") as workarea:
             self._pull(workarea)
             before = self._snapshot(workarea)
 
@@ -87,7 +88,7 @@ class TestPageMove(unittest.TestCase):
         for local in [True, False]:
             with self.subTest(local=local):
                 self.site = self._site()
-                with temporary_workarea() as workarea:
+                with temporary_workarea(root_page_id="100") as workarea:
                     self._pull(workarea)
                     if local:
                         (workarea.root_dir / "Example page/content.md").write_text("# Example page\n\nEdited\n", encoding="utf-8")
@@ -102,10 +103,10 @@ class TestPageMove(unittest.TestCase):
                     self.assertEqual(self.site.content["123456"]["parent_id"], "456789")
 
     def test_rejects_self_and_cross_space_parents(self) -> None:
-        self.site.add_page("555555", "Other space", space_id="other")
+        self.site.add_page("555555", "Other space", parent_id="100", space_id="other")
         for parent_id, error in [("123456", "cannot be its own parent"), ("555555", "different space")]:
             with self.subTest(parent=parent_id, error=error):
-                with temporary_workarea() as workarea:
+                with temporary_workarea(root_page_id="100") as workarea:
                     self._pull(workarea)
                     before = self._snapshot(workarea)
 
@@ -117,7 +118,7 @@ class TestPageMove(unittest.TestCase):
 
     def test_reports_server_hierarchy_rejection_without_changing_local_state(self) -> None:
         self.site.add_page("222222", "Descendant", parent_id="123456")
-        with temporary_workarea() as workarea:
+        with temporary_workarea(root_page_id="100") as workarea:
             self._pull(workarea)
             before = self._snapshot(workarea)
 
@@ -128,7 +129,7 @@ class TestPageMove(unittest.TestCase):
             self.assertEqual(self.site.content["123456"]["parent_id"], "456789")
 
     def test_reports_an_unchanged_parent_as_a_noop(self) -> None:
-        with temporary_workarea() as workarea:
+        with temporary_workarea(root_page_id="100") as workarea:
             self._pull(workarea)
             before = self._snapshot(workarea)
 
@@ -140,7 +141,7 @@ class TestPageMove(unittest.TestCase):
             self.assertTrue(all(request.method == "GET" for request in self.site.requests))
 
     def test_reports_incomplete_synchronization_when_cache_write_fails(self) -> None:
-        with temporary_workarea() as workarea:
+        with temporary_workarea(root_page_id="100") as workarea:
             self._pull(workarea)
             before = self._snapshot(workarea)
 

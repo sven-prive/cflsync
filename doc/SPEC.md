@@ -63,10 +63,19 @@ or local page directory. The resolver classifies the argument in this order:
 3. Any other argument is a page title.
 
 Path references must be inside the discovered workarea and identify a cached
-page; arbitrary standalone GFM files are rejected. An ID is resolved directly
-through Confluence. A title first matches a cached title; otherwise it is
-looked up remotely. Both must produce exactly one page. Zero and multiple
-matches are errors, and ambiguity reports available page IDs.
+page by its directory's location; arbitrary standalone GFM files are rejected.
+An ID is resolved through Confluence. A title first matches a cached title;
+otherwise it is looked up remotely. Both must produce exactly one page. Zero
+and multiple matches are errors; an ambiguous cached title reports the page IDs
+and local paths, and an ambiguous remote title the page IDs.
+
+References only resolve to pages in the workarea's tree: the root page and its
+descendants. Cached pages are in the tree. Any other page must be the root
+page, or have the root page among its Confluence ancestors, which one ancestors
+request checks. Otherwise the reference fails with "not found in this
+workarea", and a remote title ignores candidates outside the tree. Ancestors
+above the root page may be folders; a page below non-page content inside the
+tree, such as a folder, is an error, because only pages are supported.
 
 All successful reference forms produce a page ID. Subsequent command
 semantics, cache keys, concurrency checks, and conflict handling are identical.

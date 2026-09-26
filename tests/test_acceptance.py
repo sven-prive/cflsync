@@ -164,6 +164,9 @@ class RecordedConfluenceTransport:
         if method == "GET" and path == f"/pages/{self.page_id}":
             return self._json(self._page())
 
+        if method == "GET" and path == f"/pages/{self.page_id}/ancestors":
+            return self._json({"results": [{"id": self.parent_id, "type": "page"}]})
+
         if method == "PUT" and path == f"/pages/{self.page_id}":
             return self._update_page(body)
 
