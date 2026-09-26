@@ -98,8 +98,8 @@ class TestPageRename(unittest.TestCase):
             self.assertEqual((target / "_attachments/diagram.png").read_bytes(), b"PNG")
             self.assertEqual((target / "notes.txt").read_text(encoding="utf-8"), "unmanaged")
             self.assertEqual((state.page.title, state.page.directory, state.page.version), ("Renamed page", "Renamed page", 18))
-            self.assertEqual(json.loads(request.body)["title"], "Renamed page")
-            self.assertEqual(json.loads(request.body)["body"]["value"], self._page()["body"]["atlas_doc_format"]["value"])
+            self.assertEqual(request.json_body()["title"], "Renamed page")
+            self.assertEqual(request.json_body()["body"]["value"], self._page()["body"]["atlas_doc_format"]["value"])
 
     def test_rejects_unsynchronized_local_or_remote_pages_without_mutation(self) -> None:
         for local, version in [(True, 17), (False, 18)]:

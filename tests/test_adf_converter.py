@@ -7,6 +7,7 @@
 """Tests for ADF to Markdown conversion."""
 
 import json
+from typing import Any
 import unittest
 from datetime import datetime
 from types import SimpleNamespace
@@ -29,7 +30,7 @@ class TestADFToMarkdownConverter(unittest.TestCase):
         text = {"type": "text", "text": "Synthetic", "extra": 1}
         paragraph = {"type": "paragraph", "content": [text], "attrs": {"alignment": "center"}}
         item = {"type": "listItem", "content": [paragraph], "attrs": {"editorState": "unused"}}
-        cases = [
+        cases: list[tuple[dict[str, Any], str]] = [
             (paragraph, "Para"), ({
                 "type": "heading",
                 "attrs": {
@@ -168,7 +169,7 @@ class TestADFToMarkdownConverter(unittest.TestCase):
                                     "c": ["html", f"</{tag}>"]}])
 
     def test_invalid_subsup_marks_retain_the_enclosing_block(self) -> None:
-        cases = [
+        cases: list[list[dict[str, Any]]] = [
             [{
                 "type": "subsup"}], [{
                     "type": "subsup",

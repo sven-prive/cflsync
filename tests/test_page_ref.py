@@ -6,6 +6,7 @@
 
 """Tests for resolving page command references."""
 
+from collections.abc import Sequence
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -17,9 +18,9 @@ from tests.support import example_page_state, temporary_workarea
 
 class FakeAPI:
 
-    def __init__(self, page_ids: list[str] = (), pages: list[SimpleNamespace] = ()) -> None:
-        self.page_ids = page_ids
-        self.pages = pages
+    def __init__(self, page_ids: Sequence[str] = (), pages: Sequence[SimpleNamespace] = ()) -> None:
+        self.page_ids = list(page_ids)
+        self.pages = list(pages)
         self.get_page_calls: list[str] = []
         self.find_pages_by_title_calls: list[str] = []
 

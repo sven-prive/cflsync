@@ -140,12 +140,12 @@ class TestPagePush(unittest.TestCase):
             _, status, transport = self._push(workarea, self._push_responses())
 
             update = transport.requests[-1]
-            document = json.loads(json.loads(update.body)["body"]["value"])
+            document = json.loads(update.json_body()["body"]["value"])
             state = PageState.load(workarea.cache_path("123456"))
             self.assertEqual(status, 0)
             self.assertEqual(update.method, "PUT")
             self.assertEqual(update.path, "/pages/123456")
-            self.assertEqual(json.loads(update.body)["version"], {"number": 18})
+            self.assertEqual(update.json_body()["version"], {"number": 18})
             # The title heading belongs to the page, not to its body.
             self.assertEqual(document["content"][0]["content"][0]["text"], "Edited")
             self.assertEqual(state.page.version, 18)
@@ -162,7 +162,7 @@ class TestPagePush(unittest.TestCase):
 
             _, status, transport = self._push(workarea, responses)
 
-            document = json.loads(json.loads(transport.requests[-1].body)["body"]["value"])
+            document = json.loads(transport.requests[-1].json_body()["body"]["value"])
             lookup = transport.requests[-2]
             self.assertEqual(status, 0)
             self.assertEqual(lookup.path, "/search/user")
@@ -270,7 +270,7 @@ class TestPagePush(unittest.TestCase):
             state = PageState.load(workarea.cache_path("123456"))
             self.assertEqual(status, 0)
             self.assertEqual(state.page.version, 19)
-            self.assertEqual(json.loads(transport.requests[-1].body)["version"], {"number": 19})
+            self.assertEqual(transport.requests[-1].json_body()["version"], {"number": 19})
 
     def test_rejects_a_page_without_a_cache_entry(self) -> None:
         with temporary_workarea() as workarea:

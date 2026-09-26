@@ -8,7 +8,7 @@
 
 import os
 
-from .api import APIClient, APIError, APIResponse, RemoteAttachment, RemotePage, RemoteUser
+from .api import APIClient, APIError, APIResponse, RemoteAttachment, RemoteContentRef, RemotePage, RemoteUser
 from .config import Config, ConfigError, Profile
 from .convert import ADFToMarkdownConverter, ConversionError, MarkdownToADFConverter, PandocError, PandocRunner
 from .errors import SyncError

@@ -16,6 +16,7 @@ import hashlib
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any
 
 from cflsync import AttachmentMetadata, PageMetadata, PageState, TransportResponse, Workarea
 
@@ -46,6 +47,13 @@ class RecordedRequest:
     parameters: dict[str, str]
     headers: dict[str, str]
     body: bytes | None
+
+    def json_body(self) -> Any:
+        """Decode this request's JSON body, failing the test when it has none."""
+        if self.body is None:
+            raise AssertionError(f"{self.method} {self.path} has no body")
+
+        return json.loads(self.body)
 
 
 class MockResponse(TransportResponse):

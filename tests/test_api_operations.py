@@ -9,7 +9,7 @@
 import json
 import unittest
 
-from cflsync import APIClient, RemoteAttachment, RemotePage, RemoteUser
+from cflsync import APIClient, APIError, RemoteAttachment, RemotePage, RemoteUser
 from tests.support import MockResponse, MockTransport
 
 
@@ -111,6 +111,7 @@ class TestAPIClientPageOperations(unittest.TestCase):
         client = APIClient("example.atlassian.net", "user", "token", transport=transport)
         page = RemotePage.from_json(client, page_fixture())
 
+        assert page.body is not None
         result = page.update(page.body, "Renamed page")
 
         self.assertEqual(result.title, "Renamed page")
@@ -119,7 +120,7 @@ class TestAPIClientPageOperations(unittest.TestCase):
         self.assertEqual(request.method, "PUT")
         self.assertEqual(request.path, "/pages/123456")
         self.assertEqual(
-            json.loads(request.body), {
+            request.json_body(), {
                 "id": "123456",
                 "status": "current",
                 "title": "Renamed page",
@@ -137,13 +138,14 @@ class TestAPIClientPageOperations(unittest.TestCase):
         client = APIClient("example.atlassian.net", "user", "token", transport=transport)
         page = RemotePage.from_json(client, page_fixture())
 
+        assert page.body is not None
         result = page.update(page.body, parent_id="987654")
 
         self.assertEqual(result.parent_id, "987654")
         request = transport.requests[0]
-        self.assertEqual(json.loads(request.body)["title"], "Example page")
-        self.assertEqual(json.loads(request.body)["parentId"], "987654")
-        self.assertEqual(json.loads(request.body)["body"]["value"], page.body)
+        self.assertEqual(request.json_body()["title"], "Example page")
+        self.assertEqual(request.json_body()["parentId"], "987654")
+        self.assertEqual(request.json_body()["body"]["value"], page.body)
 
     def test_deletes_a_page(self) -> None:
         transport = MockTransport([MockResponse(204, {}, b"")])
@@ -167,7 +169,7 @@ class TestAPIClientPageOperations(unittest.TestCase):
         self.assertEqual(request.method, "POST")
         self.assertEqual(request.path, "/pages")
         self.assertEqual(
-            json.loads(request.body), {
+            request.json_body(), {
                 "spaceId": "98765",
                 "status": "current",
                 "title": "Example page",
@@ -211,6 +213,7 @@ class TestAPIClientPageOperations(unittest.TestCase):
 
         user = client.find_user_by_name_and_email("Example User", "EXAMPLE.USER@example.test")
 
+        assert user is not None
         self.assertEqual(user.account_id, "account-123")
 
     def test_does_not_choose_between_users_with_the_same_email(self) -> None:
@@ -234,7 +237,96 @@ class TestAPIClientPageOperations(unittest.TestCase):
         request = transport.requests[0]
         self.assertEqual(request.method, "PUT")
         self.assertEqual(request.path, "/pages/123456")
-        self.assertEqual(json.loads(request.body)["version"], {"number": 18})
+        self.assertEqual(request.json_body()["version"], {"number": 18})
+
+
+class TestAPIClientTreeOperations(unittest.TestCase):
+
+    def test_lists_ancestors_highest_first_including_folders(self) -> None:
+        results = [{"id": "100", "type": "page"}, {"id": "200", "type": "page"}, {"id": "300", "type": "folder"}]
+        transport = MockTransport([MockResponse.from_json({"results": results})])
+        client = APIClient("example.atlassian.net", "user", "token", transport=transport)
+
+        ancestors = client.page_ancestors("123456")
+
+        self.assertEqual(
+            [(ancestor.id, ancestor.type) for ancestor in ancestors], [("100", "page"), ("200", "page"), ("300", "folder")])
+        self.assertEqual(transport.requests[0].path, "/pages/123456/ancestors")
+        self.assertEqual(transport.requests[0].parameters, {"limit": "250"})
+
+    def test_lists_no_ancestors_for_a_top_level_page(self) -> None:
+        transport = MockTransport([MockResponse.from_json({"results": []})])
+        client = APIClient("example.atlassian.net", "user", "token", transport=transport)
+
+        self.assertEqual(client.page_ancestors("123456"), [])
+
+    def test_continues_a_full_ancestor_listing_from_its_highest_ancestor(self) -> None:
+        nearest = [{"id": str(1000 + index), "type": "page"} for index in range(250)]
+        nearest[0] = {"id": "900", "type": "folder"}
+        higher = [{"id": "1", "type": "page"}, {"id": "2", "type": "page"}]
+        transport = MockTransport([MockResponse.from_json({"results": nearest}), MockResponse.from_json({"results": higher})])
+        client = APIClient("example.atlassian.net", "user", "token", transport=transport)
+
+        ancestors = client.page_ancestors("123456")
+
+        self.assertEqual([ancestor.id for ancestor in ancestors[:3]], ["1", "2", "900"])
+        self.assertEqual(len(ancestors), 252)
+        self.assertEqual(transport.requests[1].path, "/folders/900/ancestors")
+
+    def test_rejects_a_repeated_ancestor(self) -> None:
+        transport = MockTransport([MockResponse.from_json({"results": [{"id": "123456", "type": "page"}]})])
+        client = APIClient("example.atlassian.net", "user", "token", transport=transport)
+
+        with self.assertRaisesRegex(APIError, "more than once"):
+            client.page_ancestors("123456")
+
+    def test_rejects_continuation_past_an_unsupported_ancestor_type(self) -> None:
+        nearest = [{"id": str(1000 + index), "type": "page"} for index in range(250)]
+        nearest[0] = {"id": "900", "type": "whiteboard"}
+        transport = MockTransport([MockResponse.from_json({"results": nearest})])
+        client = APIClient("example.atlassian.net", "user", "token", transport=transport)
+
+        with self.assertRaisesRegex(APIError, "beyond whiteboard '900'"):
+            client.page_ancestors("123456")
+
+    def test_rejects_an_ancestor_without_a_type(self) -> None:
+        transport = MockTransport([MockResponse.from_json({"results": [{"id": "100"}]})])
+        client = APIClient("example.atlassian.net", "user", "token", transport=transport)
+
+        with self.assertRaisesRegex(APIError, "content.type"):
+            client.page_ancestors("123456")
+
+    def test_reports_a_missing_page_when_listing_ancestors(self) -> None:
+        transport = MockTransport([MockResponse.from_json({"message": "Not found"}, status=404)])
+        client = APIClient("example.atlassian.net", "user", "token", transport=transport)
+
+        with self.assertRaises(APIError) as context:
+            client.page_ancestors("123456")
+
+        self.assertEqual(context.exception.status, 404)
+
+    def test_lists_direct_children_across_pages_including_folders(self) -> None:
+        first = {
+            "results": [{
+                "id": "200",
+                "status": "current",
+                "title": "Child",
+                "type": "page",
+                "childPosition": 1}],
+            "_links": {
+                "next": "/wiki/api/v2/pages/123456/direct-children?limit=250&cursor=abc"}}
+        second = {"results": [{"id": "300", "status": "current", "title": "Folder", "type": "folder", "childPosition": 2}]}
+        transport = MockTransport([MockResponse.from_json(first), MockResponse.from_json(second)])
+        client = APIClient("example.atlassian.net", "user", "token", transport=transport)
+
+        children = client.page_children("123456")
+
+        self.assertEqual(
+            [(child.id, child.type, child.title, child.parent_id) for child in children], [
+                ("200", "page", "Child", "123456"), ("300", "folder", "Folder", "123456")])
+        self.assertEqual(transport.requests[0].path, "/pages/123456/direct-children")
+        self.assertEqual(transport.requests[0].parameters, {"limit": "250"})
+        self.assertEqual(transport.requests[1].path, "/wiki/api/v2/pages/123456/direct-children?limit=250&cursor=abc")
 
 
 class TestAPIClientAttachmentOperations(unittest.TestCase):
@@ -273,6 +365,7 @@ class TestAPIClientAttachmentOperations(unittest.TestCase):
         self.assertEqual(request.method, "PUT")
         self.assertEqual(request.path, "/content/123456/child/attachment")
         self.assertEqual(request.headers["X-Atlassian-Token"], "nocheck")
+        assert request.body is not None
         self.assertIn(b'filename="diagram.png"', request.body)
         self.assertIn(b"\r\nPNG\r\n", request.body)
 

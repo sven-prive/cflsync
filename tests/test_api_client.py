@@ -43,7 +43,7 @@ class TestAPIClientTransport(unittest.TestCase):
         self.assertEqual(request.path, "/pages/A page")
         self.assertEqual(request.parameters, {"expand": "body.atlas_doc_format", "title": "A page"})
         self.assertEqual(request.headers["Content-Type"], "application/json")
-        self.assertEqual(json.loads(request.body), {"title": "A page"})
+        self.assertEqual(request.json_body(), {"title": "A page"})
 
     def test_collects_paginated_results_from_host_relative_links(self) -> None:
         transport = MockTransport(

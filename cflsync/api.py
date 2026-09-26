@@ -15,6 +15,10 @@ from .errors import SyncError
 from .transport import Transport, TransportError, TransportResponse, UrllibTransport
 
 RETRIABLE_READ_STATUSES = {429, 502, 503, 504}
+# Confluence rejects larger values for the ancestor and child listings with HTTP 400.
+MAX_LISTING_LIMIT = 250
+# Ancestor listings continue from the highest returned ancestor, through the endpoint of its content type.
+ANCESTOR_PATHS = {"page": "/pages", "folder": "/folders"}
 
 
 class APIError(SyncError):
@@ -121,6 +125,27 @@ class RemotePage:
             raise APIError("attachment upload response must contain one result")
 
         return RemoteAttachment.from_json(self._client, _json_mapping(result[0], "attachment upload result"), self.id)
+
+
+class RemoteContentRef:
+    """A reference to a content-tree node reported by an ancestor or child listing.
+
+    It identifies the node and its content type; synchronizing a page requires fetching it as a :class:`RemotePage`.
+    """
+
+    def __init__(self, id: str, type: str, title: str | None = None, parent_id: str | None = None) -> None:
+        self.id = id
+        self.type = type
+        self.title = title
+        self.parent_id = parent_id
+
+    @classmethod
+    def from_json(cls, value: Mapping[str, object], parent_id: str | None = None) -> "RemoteContentRef":
+        id = _required_string(value, "content", "id")
+        type = _required_string(value, "content", "type")
+        title = _optional_string(value, "title")
+
+        return cls(id, type, title, parent_id)
 
 
 class RemoteAttachment:
@@ -303,6 +328,44 @@ class APIClient:
                 "body-format": "atlas_doc_format",
                 "include-version": "true"})
         return RemotePage.from_json(self, self._json_object(response))
+
+    def page_ancestors(self, page_id: str) -> list[RemoteContentRef]:
+        """Return every ancestor of a page, highest first, including non-page ancestors such as folders.
+
+        One response holds at most ``limit`` ancestors, nearest to the requested content. A full response
+        continues from its highest ancestor.
+        """
+        ancestors = []
+        path = f"/pages/{page_id}/ancestors"
+        seen = {page_id}
+        while True:
+            response = self.make_request("GET", path, parameters={"limit": str(MAX_LISTING_LIMIT)})
+            values = self._json_object(response).get("results")
+            if not isinstance(values, list):
+                raise APIError("ancestor response has no results list")
+
+            batch = [RemoteContentRef.from_json(_json_mapping(value, "ancestor result")) for value in values]
+            for ancestor in batch:
+                if ancestor.id in seen:
+                    raise APIError(f"ancestors of page '{page_id}' contain '{ancestor.id}' more than once")
+
+                seen.add(ancestor.id)
+
+            ancestors[:0] = batch
+            if len(batch) < MAX_LISTING_LIMIT:
+                return ancestors
+
+            highest = batch[0]
+            if highest.type not in ANCESTOR_PATHS:
+                raise APIError(f"cannot list ancestors beyond {highest.type} '{highest.id}'")
+
+            path = f"{ANCESTOR_PATHS[highest.type]}/{highest.id}/ancestors"
+
+    def page_children(self, page_id: str) -> list[RemoteContentRef]:
+        """Return every direct child of a page in position order, including non-page content such as folders."""
+        values = self.make_paginated_request(
+            "GET", f"/pages/{page_id}/direct-children", parameters={"limit": str(MAX_LISTING_LIMIT)})
+        return [RemoteContentRef.from_json(_json_mapping(value, "child result"), page_id) for value in values]
 
     def find_pages_by_title(self, title: str) -> list[RemotePage]:
         """Return pages whose remote title matches *title*."""

@@ -244,3 +244,24 @@ attachments, updates content with optimistic concurrency, applies managed
 attachment deletions, and writes cache only after complete success. A failed
 remote sequence is reported as incomplete; the next `page status` detects the
 resulting remote change.
+
+## Content hierarchy requests
+
+The API client lists a page's ancestors and direct children. No command uses
+these listings yet; they support the planned subtree operations. Their
+behaviour was verified against Confluence Cloud:
+
+- `GET /pages/{id}/ancestors` returns `id` and `type` for every ancestor,
+  highest first. Non-page ancestors such as folders are included. A response
+  holds at most `limit` ancestors, nearest to the requested content, and has no
+  `next` link. `APIClient.page_ancestors` requests the maximum `limit` of 250.
+  It continues a full response from its highest ancestor, through
+  `/pages/{id}/ancestors` or `/folders/{id}/ancestors`, and rejects any other
+  ancestor type as a continuation point.
+- `GET /pages/{id}/direct-children` returns `id`, `status`, `title`, `type`,
+  and `childPosition`, in position order, and is paginated through
+  `_links.next`. According to the API reference, it includes non-page children
+  (folders, whiteboards, databases, embeds). The `/pages/{id}/children`
+  endpoint omits `type`, so it cannot distinguish non-page children, and is not
+  used.
+- A `limit` above 250 is rejected with HTTP 400 by both endpoints.

@@ -113,10 +113,10 @@ Check formatting without modifying files:
 uv run --group dev python -m yapf --recursive --diff cflsync tests packaging/scripts
 ```
 
-Check the application source with Zuban:
+Check the application and test sources with Zuban:
 
 ```console
-zuban check cflsync
+zuban check cflsync tests
 ```
 
 Build the self-contained zipapp distribution artifact:

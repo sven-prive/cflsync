@@ -45,3 +45,9 @@ indent_closing_brackets = false
 
 [tool.zuban]
 python_executable = ".venv/bin/python"
+
+# Tests reshape literal JSON fixtures and inspect converter output by index, which the checker cannot follow without
+# local annotations. These codes stay enabled for application source; calls into the public API remain checked.
+[[tool.zuban.overrides]]
+module = ["tests.*"]
+disable_error_code = ["index", "assignment", "call-overload", "var-annotated"]

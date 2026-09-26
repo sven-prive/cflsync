@@ -107,9 +107,9 @@ class TestPageMove(unittest.TestCase):
             self.assertEqual(state.page.version, 18)
             self.assertEqual(state.page.title, "Example page")
             self.assertEqual(state.page.directory, "Example page")
-            self.assertEqual(json.loads(request.body)["parentId"], "987654")
-            self.assertEqual(json.loads(request.body)["title"], "Example page")
-            self.assertEqual(json.loads(request.body)["body"]["value"], self._page()["body"]["atlas_doc_format"]["value"])
+            self.assertEqual(request.json_body()["parentId"], "987654")
+            self.assertEqual(request.json_body()["title"], "Example page")
+            self.assertEqual(request.json_body()["body"]["value"], self._page()["body"]["atlas_doc_format"]["value"])
 
     def test_rejects_local_or_remote_source_changes_without_moving(self) -> None:
         for local, version in [(True, 17), (False, 18)]:

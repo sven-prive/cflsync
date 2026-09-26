@@ -78,7 +78,7 @@ class TestPageCreate(unittest.TestCase):
             create_request = transport.requests[2]
             self.assertEqual(create_request.method, "POST")
             self.assertEqual(create_request.path, "/pages")
-            body = json.loads(create_request.body)
+            body = create_request.json_body()
             self.assertEqual(body["parentId"], "456789")
             self.assertEqual(body["spaceId"], "98765")
             self.assertEqual(body["title"], "New page")
@@ -110,7 +110,7 @@ class TestPageCreate(unittest.TestCase):
 
             self.assertEqual(status, 0)
             self.assertEqual(transport.requests[0].parameters["title"], "Parent page")
-            self.assertEqual(json.loads(transport.requests[2].body)["parentId"], "456789")
+            self.assertEqual(transport.requests[2].json_body()["parentId"], "456789")
 
     def test_resolves_a_managed_parent_directory_before_creation(self) -> None:
         with temporary_workarea() as workarea:
@@ -127,7 +127,7 @@ class TestPageCreate(unittest.TestCase):
 
             self.assertEqual(status, 0)
             self.assertEqual(transport.requests[0].path, "/pages/456789")
-            self.assertEqual(json.loads(transport.requests[1].body)["parentId"], "456789")
+            self.assertEqual(transport.requests[1].json_body()["parentId"], "456789")
 
     def test_failed_follow_up_pull_reports_the_created_page(self) -> None:
         with temporary_workarea() as workarea:
