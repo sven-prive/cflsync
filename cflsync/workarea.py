@@ -21,6 +21,9 @@ from urllib.parse import quote
 
 from .errors import SyncError
 
+# The Markdown file in each page directory. The name is not page-specific, to allow other content types later.
+CONTENT_FILENAME = "content.md"
+
 
 class MediaResolutionError(SyncError):
     """Raised when a managed attachment cannot be resolved safely."""
@@ -479,15 +482,15 @@ class Workarea:
         return PageTree(states, self.root_page_id)
 
     def page_directory(self, state: PageState, must_exist: bool = True) -> Path:
-        """Return the safe managed path, normally requiring a directory and page.md."""
+        """Return the safe managed path, normally requiring a directory and content.md."""
         directory = self.page_directory_path(state.page.directory)
         if not must_exist:
             return directory
 
         if not directory.is_dir():
             raise Workarea.Error("managed page directory does not exist")
-        if not (directory / "page.md").is_file():
-            raise Workarea.Error("managed page directory does not contain page.md")
+        if not (directory / CONTENT_FILENAME).is_file():
+            raise Workarea.Error("managed page directory does not contain content.md")
 
         return directory
 
@@ -565,6 +568,10 @@ class Workarea:
             raise Workarea.Error("page title must be a non-empty string")
 
         directory_name = quote(title, safe=" -_").replace(".", "%2E")
+        # Names starting with "_" are reserved for cflsync entries in a page directory, such as _attachments.
+        if directory_name.startswith("_"):
+            directory_name = f"%5F{directory_name[1:]}"
+
         trailing_spaces = len(directory_name) - len(directory_name.rstrip(" "))
         directory_name = directory_name.rstrip(" ")
         if directory_name.upper() in _WINDOWS_RESERVED_NAMES:
@@ -592,7 +599,7 @@ class Workarea:
             if source is not None:
                 shutil.copytree(source, staging, dirs_exist_ok=True, symlinks=True)
 
-            page_path = staging / "page.md"
+            page_path = staging / CONTENT_FILENAME
             page_path.unlink(missing_ok=True)
             attachment_directory = staging / "_attachments"
             if attachment_directory.is_symlink():
@@ -607,7 +614,7 @@ class Workarea:
                 if path.exists() or path.is_symlink():
                     raise Workarea.Error(f"attachment '{filename}' would overwrite an unmanaged file")
 
-            (staging / "page.md").write_text(markdown, encoding="utf-8", newline="\n")
+            (staging / CONTENT_FILENAME).write_text(markdown, encoding="utf-8", newline="\n")
             for filename, body in attachments.items():
                 self._attachment_path(attachment_directory, filename).write_bytes(body)
 
@@ -655,7 +662,7 @@ class Workarea:
 
             return
 
-        paths = [Path("page.md")]
+        paths = [Path(CONTENT_FILENAME)]
         for filename in sorted(set(managed_attachments)):
             self._attachment_path(source / "_attachments", filename)
             paths.append(Path("_attachments") / filename)
@@ -730,7 +737,7 @@ class Workarea:
         except ValueError as error:
             raise Workarea.Error("staging directory is outside the workarea") from error
 
-        if not staging.is_dir() or not (staging / "page.md").is_file() or not (staging / "_attachments").is_dir():
+        if not staging.is_dir() or not (staging / CONTENT_FILENAME).is_file() or not (staging / "_attachments").is_dir():
             raise Workarea.Error("staging directory is incomplete")
 
         if not target.exists():
@@ -876,14 +883,14 @@ class PageRef:
             raise PageRefError(f"page path '{path}' is outside the workarea") from error
 
         if path.is_file():
-            if path.name != "page.md":
-                raise PageRefError(f"page file '{path}' is not named page.md")
+            if path.name != CONTENT_FILENAME:
+                raise PageRefError(f"page file '{path}' is not named content.md")
             directory = path.parent
             relative_path = relative_path.parent
         elif path.is_dir():
             directory = path
-            if not (directory / "page.md").is_file():
-                raise PageRefError(f"page directory '{path}' does not contain page.md")
+            if not (directory / CONTENT_FILENAME).is_file():
+                raise PageRefError(f"page directory '{path}' does not contain content.md")
         else:
             raise PageRefError(f"page path '{path}' is neither a file nor a directory")
 

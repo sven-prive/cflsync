@@ -41,7 +41,7 @@ class TestPageRefPaths(unittest.TestCase):
             state.save(workarea.cache_path(state.page.id))
             page_directory = workarea.root_dir / state.page.directory
             page_directory.mkdir()
-            page_file = page_directory / "page.md"
+            page_file = page_directory / "content.md"
             page_file.write_text("# Example page\n", encoding="utf-8")
             api = FakeAPI()
 
@@ -57,7 +57,7 @@ class TestPageRefPaths(unittest.TestCase):
             state.save(workarea.cache_path(state.page.id))
             page_directory = workarea.root_dir / state.page.directory
             page_directory.mkdir()
-            (page_directory / "page.md").touch()
+            (page_directory / "content.md").touch()
             api = FakeAPI()
 
             page_ref = PageRef.resolve(page_directory, workarea, api)
@@ -76,7 +76,7 @@ class TestPageRefPaths(unittest.TestCase):
                 PageRef.resolve(unmanaged_file, workarea, api)
 
             with TemporaryDirectory(prefix="cflsync-page-ref-") as temporary_dir:
-                outside_file = Path(temporary_dir) / "page.md"
+                outside_file = Path(temporary_dir) / "content.md"
                 outside_file.touch()
                 with self.assertRaises(PageRefError):
                     PageRef.resolve(outside_file, workarea, api)

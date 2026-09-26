@@ -78,7 +78,7 @@ class TestPagePull(unittest.TestCase):
             state = PageState.load(workarea.cache_path("123456"))
             directory = workarea.page_directory(state)
 
-            self.assertEqual((directory / "page.md").read_text(), "# Example page\n\nExample\n")
+            self.assertEqual((directory / "content.md").read_text(), "# Example page\n\nExample\n")
             self.assertEqual((directory / "_attachments/diagram.png").read_bytes(), b"PNG")
             self.assertEqual(state.page.content_hash, hashlib.sha256(b"# Example page\n\nExample\n").hexdigest())
             self.assertEqual(state.attachments["diagram.png"].content_hash, hashlib.sha256(b"PNG").hexdigest())
@@ -110,7 +110,7 @@ class TestPagePull(unittest.TestCase):
             transport = self._pull(workarea, page, attachments=[], user_responses=[MockResponse.from_json(user_fixture())])
 
             self.assertEqual(
-                (workarea.root_dir / "Example page/page.md").read_text(),
+                (workarea.root_dir / "Example page/content.md").read_text(),
                 "# Example page\n\n[Example User](mailto:example.user@example.test)\n")
             user_request = transport.requests[-1]
             self.assertEqual(user_request.path, "/user")
@@ -121,7 +121,7 @@ class TestPagePull(unittest.TestCase):
             self._pull(workarea)
             for markdown in ["# Example page\n\nExample\n", "# Example page\n\nExample\n\n\n"]:
                 with self.subTest(markdown=markdown):
-                    (workarea.root_dir / "Example page/page.md").write_text(markdown)
+                    (workarea.root_dir / "Example page/content.md").write_text(markdown)
                     before = self._snapshot(workarea)
                     output = StringIO()
                     with redirect_stdout(output):
@@ -140,7 +140,7 @@ class TestPagePull(unittest.TestCase):
                     transport = self._pull(workarea, force=True)
 
             state = PageState.load(workarea.cache_path("123456"))
-            markdown = (workarea.page_directory(state) / "page.md").read_bytes()
+            markdown = (workarea.page_directory(state) / "content.md").read_bytes()
             self.assertEqual(markdown, b"# Example page\n\nRegenerated\n")
             self.assertEqual(state.page.content_hash, hashlib.sha256(markdown).hexdigest())
             self.assertEqual(len(transport.requests), 5)
@@ -152,13 +152,13 @@ class TestPagePull(unittest.TestCase):
                 with temporary_workarea() as workarea:
                     self._pull(workarea)
                     directory = workarea.root_dir / "Example page"
-                    (directory / "page.md").write_bytes(b"\xffinvalid markdown")
+                    (directory / "content.md").write_bytes(b"\xffinvalid markdown")
                     (directory / "_attachments/diagram.png").write_bytes(b"edited")
                     (directory / "_attachments/local.txt").write_text("unmanaged")
                     self._pull(workarea, page=self._page(version), force=True)
 
                     state = PageState.load(workarea.cache_path("123456"))
-                    self.assertEqual((directory / "page.md").read_text(), "# Example page\n\nExample\n")
+                    self.assertEqual((directory / "content.md").read_text(), "# Example page\n\nExample\n")
                     self.assertEqual((directory / "_attachments/diagram.png").read_bytes(), b"PNG")
                     self.assertEqual((directory / "_attachments/local.txt").read_text(), "unmanaged")
                     self.assertEqual(state.page.version, version)
@@ -167,17 +167,17 @@ class TestPagePull(unittest.TestCase):
         with temporary_workarea() as workarea:
             self._pull(workarea)
             directory = workarea.root_dir / "Example page"
-            (directory / "page.md").unlink()
+            (directory / "content.md").unlink()
             (directory / "_attachments/diagram.png").unlink()
             self._pull(workarea, force=True)
 
-            self.assertEqual((directory / "page.md").read_text(), "# Example page\n\nExample\n")
+            self.assertEqual((directory / "content.md").read_text(), "# Example page\n\nExample\n")
             self.assertEqual((directory / "_attachments/diagram.png").read_bytes(), b"PNG")
 
     def test_failed_force_pull_preserves_local_edits_and_cache(self) -> None:
         with temporary_workarea() as workarea:
             self._pull(workarea)
-            (workarea.root_dir / "Example page/page.md").write_text("local edits")
+            (workarea.root_dir / "Example page/content.md").write_text("local edits")
             before = self._snapshot(workarea)
             with patch.object(PageState, "save", side_effect=SyncError("injected state failure")):
                 with self.assertRaises(SyncError):
@@ -187,7 +187,7 @@ class TestPagePull(unittest.TestCase):
 
     def test_local_and_both_sides_changes_conflict_without_mutation(self) -> None:
         for version in [17, 18]:
-            for changed_file in ["page.md", "_attachments/diagram.png"]:
+            for changed_file in ["content.md", "_attachments/diagram.png"]:
                 with self.subTest(version=version, changed_file=changed_file):
                     with temporary_workarea() as workarea:
                         self._pull(workarea)
@@ -359,6 +359,26 @@ class TestPagePullParent(unittest.TestCase):
 
             self.assertIsNone(PageState.load(workarea.cache_path("100")).page.parent_id)
             self.assertEqual(PageState.load(workarea.cache_path("200")).page.parent_id, "100")
+
+
+class TestPagePullDirectoryNames(unittest.TestCase):
+
+    def test_pulls_pages_titled_like_reserved_entries_into_distinct_directories(self) -> None:
+        site = FakeConfluence()
+        site.add_page("100", "_attachments")
+        site.add_page("200", "content.md")
+        with temporary_workarea(root_page_id="100") as workarea:
+            config = SimpleNamespace(profiles={workarea.profile: Profile("example.atlassian.net", "user", "token")})
+            with patch("cflsync.cli.Path.cwd", return_value=workarea.root_dir):
+                with patch("cflsync.cli.Config.find", return_value=config):
+                    with patch("cflsync.cli.APIClient", return_value=site.client()):
+                        with redirect_stdout(StringIO()):
+                            PagePullCommand().run("100")
+                            PagePullCommand().run("200")
+
+            self.assertTrue((workarea.root_dir / "%5Fattachments" / "content.md").is_file())
+            self.assertTrue((workarea.root_dir / "content%2Emd" / "content.md").is_file())
+            self.assertEqual(PageState.load(workarea.cache_path("100")).page.directory, "%5Fattachments")
 
 
 class TestPagePullPathLength(unittest.TestCase):

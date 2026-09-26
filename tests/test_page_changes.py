@@ -38,7 +38,7 @@ class TestPageInspector(unittest.TestCase):
                                                hashlib.sha256(ATTACHMENT).hexdigest())})
         directory = workarea.root_dir / "Example page"
         (directory / "_attachments").mkdir(parents=True)
-        (directory / "page.md").write_text(MARKDOWN, encoding="utf-8")
+        (directory / "content.md").write_text(MARKDOWN, encoding="utf-8")
         (directory / "_attachments/diagram.png").write_bytes(ATTACHMENT)
 
         return directory, state
@@ -71,9 +71,9 @@ class TestPageInspector(unittest.TestCase):
                 with temporary_workarea() as workarea:
                     directory, state = self._page(workarea)
                     if content is None:
-                        (directory / "page.md").unlink()
+                        (directory / "content.md").unlink()
                     else:
-                        (directory / "page.md").write_text(content, encoding="utf-8")
+                        (directory / "content.md").write_text(content, encoding="utf-8")
 
                     changes = self._inspect(directory, state)
 
@@ -113,7 +113,7 @@ class TestPageInspector(unittest.TestCase):
             (directory / "_attachments/added.png").write_bytes(b"ADDED")
             (directory / "_attachments/ignored.png").write_bytes(b"IGNORED")
             markdown = f"{MARKDOWN}\n![Added](_attachments/added.png)\n"
-            (directory / "page.md").write_text(markdown, encoding="utf-8")
+            (directory / "content.md").write_text(markdown, encoding="utf-8")
             state.page.content_hash = self.inspector.content_hash(markdown)
 
             changes = self._inspect(directory, state)
@@ -127,7 +127,7 @@ class TestPageInspector(unittest.TestCase):
                 with temporary_workarea() as workarea:
                     directory, state = self._page(workarea)
                     markdown = f"{MARKDOWN}\n![Linked]({reference})\n"
-                    (directory / "page.md").write_text(markdown, encoding="utf-8")
+                    (directory / "content.md").write_text(markdown, encoding="utf-8")
                     state.page.content_hash = self.inspector.content_hash(markdown)
 
                     changes = self._inspect(directory, state)
@@ -166,7 +166,7 @@ class TestPageInspector(unittest.TestCase):
     def test_reports_both_sides_when_each_changed(self) -> None:
         with temporary_workarea() as workarea:
             directory, state = self._page(workarea)
-            (directory / "page.md").write_text("# Example page\n\nEdited\n", encoding="utf-8")
+            (directory / "content.md").write_text("# Example page\n\nEdited\n", encoding="utf-8")
 
             changes = self._inspect(directory, state, page=remote_page(version=18))
 

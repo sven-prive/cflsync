@@ -94,7 +94,7 @@ class TestPageRename(unittest.TestCase):
             request = transport.requests[-1]
             self.assertEqual(status, 0)
             self.assertFalse(source.exists())
-            self.assertEqual((target / "page.md").read_text(encoding="utf-8"), "# Renamed page\n\nExample\n")
+            self.assertEqual((target / "content.md").read_text(encoding="utf-8"), "# Renamed page\n\nExample\n")
             self.assertEqual((target / "_attachments/diagram.png").read_bytes(), b"PNG")
             self.assertEqual((target / "notes.txt").read_text(encoding="utf-8"), "unmanaged")
             self.assertEqual((state.page.title, state.page.directory, state.page.version), ("Renamed page", "Renamed page", 18))
@@ -107,7 +107,7 @@ class TestPageRename(unittest.TestCase):
                 with temporary_workarea() as workarea:
                     self._pull(workarea)
                     if local:
-                        (workarea.root_dir / "Example page/page.md").write_text("# Example page\n\nEdited\n", encoding="utf-8")
+                        (workarea.root_dir / "Example page/content.md").write_text("# Example page\n\nEdited\n", encoding="utf-8")
                     before = self._snapshot(workarea)
 
                     with self.assertRaisesRegex(SyncError, "rename conflicts"):

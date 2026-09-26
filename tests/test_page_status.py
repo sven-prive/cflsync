@@ -91,12 +91,12 @@ class TestPageStatus(unittest.TestCase):
         with temporary_workarea() as workarea:
             self._pull(workarea)
             directory = workarea.root_dir / "Example page"
-            (directory / "page.md").write_text("# Example page\n\nEdited\n")
+            (directory / "content.md").write_text("# Example page\n\nEdited\n")
             (directory / "_attachments/diagram.png").write_bytes(b"edited")
 
             output, _, _ = self._status(workarea)
 
-            self.assertIn("local:  changed: page.md, _attachments/diagram.png", output)
+            self.assertIn("local:  changed: content.md, _attachments/diagram.png", output)
             self.assertIn("remote: unchanged", output)
 
     def test_reports_a_referenced_new_attachment(self) -> None:
@@ -105,12 +105,12 @@ class TestPageStatus(unittest.TestCase):
             directory = workarea.root_dir / "Example page"
             (directory / "_attachments/added.png").write_bytes(b"ADDED")
             (directory / "_attachments/ignored.png").write_bytes(b"IGNORED")
-            with (directory / "page.md").open("a") as page_file:
+            with (directory / "content.md").open("a") as page_file:
                 page_file.write("\n![Added](_attachments/added.png)\n")
 
             output, _, _ = self._status(workarea)
 
-            self.assertIn("local:  changed: page.md, _attachments/added.png", output)
+            self.assertIn("local:  changed: content.md, _attachments/added.png", output)
 
     def test_reports_remote_page_and_attachment_changes(self) -> None:
         with temporary_workarea() as workarea:
@@ -126,11 +126,11 @@ class TestPageStatus(unittest.TestCase):
     def test_reports_changes_on_both_sides(self) -> None:
         with temporary_workarea() as workarea:
             self._pull(workarea)
-            (workarea.root_dir / "Example page/page.md").write_text("# Example page\n\nEdited\n")
+            (workarea.root_dir / "Example page/content.md").write_text("# Example page\n\nEdited\n")
 
             output, _, _ = self._status(workarea, page=self._page(version=18))
 
-            self.assertIn("local:  changed: page.md", output)
+            self.assertIn("local:  changed: content.md", output)
             self.assertIn("remote: changed: page", output)
 
     def test_reports_a_missing_page_directory_as_a_local_change(self) -> None:
@@ -139,12 +139,12 @@ class TestPageStatus(unittest.TestCase):
             directory = workarea.root_dir / "Example page"
             (directory / "_attachments/diagram.png").unlink()
             (directory / "_attachments").rmdir()
-            (directory / "page.md").unlink()
+            (directory / "content.md").unlink()
             directory.rmdir()
 
             output, _, _ = self._status(workarea)
 
-            self.assertIn("local:  changed: page.md, _attachments/diagram.png", output)
+            self.assertIn("local:  changed: content.md, _attachments/diagram.png", output)
 
     def test_rejects_a_page_without_a_cache_entry(self) -> None:
         with temporary_workarea() as workarea:
@@ -154,7 +154,7 @@ class TestPageStatus(unittest.TestCase):
     def test_changes_nothing(self) -> None:
         with temporary_workarea() as workarea:
             self._pull(workarea)
-            (workarea.root_dir / "Example page/page.md").write_text("# Example page\n\nEdited\n")
+            (workarea.root_dir / "Example page/content.md").write_text("# Example page\n\nEdited\n")
             before = self._snapshot(workarea)
 
             _, _, transport = self._status(workarea, page=self._page(version=18))

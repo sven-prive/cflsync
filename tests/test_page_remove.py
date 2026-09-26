@@ -132,7 +132,7 @@ class TestPageRemove(unittest.TestCase):
     def test_rejects_unsynchronized_pages_without_removing(self) -> None:
         with temporary_workarea() as workarea:
             self._pull(workarea)
-            (workarea.root_dir / "Example page/page.md").write_text("# Example page\n\nEdited\n", encoding="utf-8")
+            (workarea.root_dir / "Example page/content.md").write_text("# Example page\n\nEdited\n", encoding="utf-8")
             before = self._snapshot(workarea)
 
             with self.assertRaisesRegex(SyncError, "remove conflicts"):

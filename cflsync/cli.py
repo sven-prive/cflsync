@@ -22,7 +22,8 @@ from .config import Config, Profile
 from .convert import ADFToMarkdownConverter, MarkdownToADFConverter, PandocRunner
 from .errors import SyncError
 from .sync import PageInspector
-from .workarea import AttachmentMetadata, MediaResolver, PageMetadata, PageRef, PageState, Workarea, filesystem_error_message
+from .workarea import (
+    CONTENT_FILENAME, AttachmentMetadata, MediaResolver, PageMetadata, PageRef, PageState, Workarea, filesystem_error_message)
 
 
 class InitCommand:
@@ -84,7 +85,7 @@ class PageCreateCommand:
 
     def configure(self, subparsers: _SubParsersAction[ArgumentParser]) -> None:
         page_create_parser = subparsers.add_parser("create", help="create an empty Confluence Cloud child page")
-        page_create_parser.add_argument("parent_page_ref", help="parent page ID, title, page.md file, or page directory")
+        page_create_parser.add_argument("parent_page_ref", help="parent page ID, title, content.md file, or page directory")
         page_create_parser.add_argument("title", help="title for the new page")
         page_create_parser.set_defaults(command=self)
 
@@ -117,7 +118,7 @@ class PagePullCommand:
         page_pull_parser = subparsers.add_parser("pull", help="pull a page from Confluence Cloud")
         page_pull_parser.add_argument(
             "-f", "--force", action="store_true", help="prefer remote content, overwriting local changes to managed files")
-        page_pull_parser.add_argument("page_ref", help="page ID, title, page.md file, or page directory")
+        page_pull_parser.add_argument("page_ref", help="page ID, title, content.md file, or page directory")
         page_pull_parser.set_defaults(command=self)
 
     def __call__(self, args: Namespace) -> int:
@@ -208,7 +209,7 @@ class PagePushCommand:
     def configure(self, subparsers: _SubParsersAction[ArgumentParser]) -> None:
         page_push_parser = subparsers.add_parser("push", help="push a page to Confluence Cloud")
         page_push_parser.add_argument("-f", "--force", action="store_true", help="prefer local content, overwriting remote changes")
-        page_push_parser.add_argument("page_ref", help="page ID, title, page.md file, or page directory")
+        page_push_parser.add_argument("page_ref", help="page ID, title, content.md file, or page directory")
         page_push_parser.set_defaults(command=self)
 
     def __call__(self, args: Namespace) -> int:
@@ -243,7 +244,7 @@ class PagePushCommand:
                 print(f"Page '{page.id}' is already in sync; nothing pushed. Use --force to upload local content.")
                 return
 
-        markdown = (directory / "page.md").read_text(encoding="utf-8")
+        markdown = (directory / CONTENT_FILENAME).read_text(encoding="utf-8")
         bodies = self._managed_attachments(directory, state, inspector, markdown)
         self._upload_attachments(page, state, bodies, attachments)
         # Re-read the manifest so new uploads contribute their server-assigned file IDs.
@@ -303,7 +304,7 @@ class PageRenameCommand:
 
     def configure(self, subparsers: _SubParsersAction[ArgumentParser]) -> None:
         page_rename_parser = subparsers.add_parser("rename", help="rename a synchronized Confluence Cloud page")
-        page_rename_parser.add_argument("page_ref", help="page ID, title, page.md file, or page directory")
+        page_rename_parser.add_argument("page_ref", help="page ID, title, content.md file, or page directory")
         page_rename_parser.add_argument("title", help="new page title")
         page_rename_parser.set_defaults(command=self)
 
@@ -343,7 +344,7 @@ class PageRenameCommand:
             raise SyncError(f"page '{page.id}' has no ADF body")
 
         directory_name = workarea.page_directory_name(title)
-        markdown = (directory / "page.md").read_text(encoding="utf-8")
+        markdown = (directory / CONTENT_FILENAME).read_text(encoding="utf-8")
         renamed_markdown = MarkdownToADFConverter(pandoc).retitle(markdown, state.page.title, title)
         content_hash = inspector.content_hash(renamed_markdown)
         target_state = PageState(
@@ -369,8 +370,8 @@ class PageMoveCommand:
 
     def configure(self, subparsers: _SubParsersAction[ArgumentParser]) -> None:
         page_move_parser = subparsers.add_parser("move", help="move a synchronized Confluence Cloud page")
-        page_move_parser.add_argument("page_ref", help="page ID, title, page.md file, or page directory")
-        page_move_parser.add_argument("new_parent_ref", help="page ID, title, page.md file, or page directory")
+        page_move_parser.add_argument("page_ref", help="page ID, title, content.md file, or page directory")
+        page_move_parser.add_argument("new_parent_ref", help="page ID, title, content.md file, or page directory")
         page_move_parser.set_defaults(command=self)
 
     def __call__(self, args: Namespace) -> int:
@@ -439,7 +440,7 @@ class PageRemoveCommand:
     def configure(self, subparsers: _SubParsersAction[ArgumentParser]) -> None:
         page_remove_parser = subparsers.add_parser("remove", help="remove a managed Confluence Cloud page")
         page_remove_parser.add_argument("-f", "--force", action="store_true", help="remove without confirmation")
-        page_remove_parser.add_argument("page_ref", help="managed page ID, title, page.md file, or page directory")
+        page_remove_parser.add_argument("page_ref", help="managed page ID, title, content.md file, or page directory")
         page_remove_parser.set_defaults(command=self)
 
     def __call__(self, args: Namespace) -> int:
@@ -494,7 +495,7 @@ class PageStatusCommand:
 
     def configure(self, subparsers: _SubParsersAction[ArgumentParser]) -> None:
         page_status_parser = subparsers.add_parser("status", help="show a page's synchronization status")
-        page_status_parser.add_argument("page_ref", help="page ID, title, page.md file, or page directory")
+        page_status_parser.add_argument("page_ref", help="page ID, title, content.md file, or page directory")
         page_status_parser.set_defaults(command=self)
 
     def __call__(self, args: Namespace) -> int:
@@ -517,7 +518,7 @@ class PageStatusCommand:
             raise SyncError(f"cannot report page status: {filesystem_error_message(error)}") from error
 
         print(f"Page '{state.page.id}' ({state.page.title})")
-        print(f"  local:  {self._summary(changes.page_locally, 'page.md', changes.attachments_locally)}")
+        print(f"  local:  {self._summary(changes.page_locally, CONTENT_FILENAME, changes.attachments_locally)}")
         print(f"  remote: {self._summary(changes.page_remotely, 'page', changes.attachments_remotely)}")
 
         return 0

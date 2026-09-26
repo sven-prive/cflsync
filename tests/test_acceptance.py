@@ -348,7 +348,7 @@ class TestRecordedAcceptanceWorkflow(unittest.TestCase):
             attachments = directory / "_attachments"
             attachments.mkdir(exist_ok=True)
             (attachments / "diagram.png").write_bytes(b"fixture image")
-            (directory / "page.md").write_text(
+            (directory / "content.md").write_text(
                 "# Acceptance page\n\nEdited [link](https://example.test).\n\n![Diagram](_attachments/diagram.png)\n",
                 encoding="utf-8",
             )
@@ -366,7 +366,7 @@ class TestRecordedAcceptanceWorkflow(unittest.TestCase):
             self.assertEqual(errors, "")
 
             directory = root / "Renamed acceptance page"
-            markdown = (directory / "page.md").read_text(encoding="utf-8")
+            markdown = (directory / "content.md").read_text(encoding="utf-8")
             self.assertEqual(sum(line.startswith("# ") for line in markdown.splitlines()), 1)
             self.assertIn("# Renamed acceptance page", markdown)
             self.assertIn("## An L2 Heading", markdown)
@@ -393,7 +393,7 @@ class TestRecordedAcceptanceWorkflow(unittest.TestCase):
             self.assertEqual(self._run(root, config, client, ["init", "456789"])[0], 0)
             self.assertEqual(self._run(root, config, client, ["page", "create", "456789", "Acceptance page"])[0], 0)
 
-            page = root / "Acceptance page" / "page.md"
+            page = root / "Acceptance page" / "content.md"
             page.write_text("# Acceptance page\n\nLocal pull conflict\n", encoding="utf-8")
             transport.set_remote_page({"type": "doc", "version": 1, "content": [_paragraph("Remote pull winner")]})
             status, _, errors = self._run(root, config, client, ["page", "pull", transport.page_id])

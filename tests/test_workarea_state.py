@@ -144,7 +144,7 @@ class TestWorkareaPageDirectory(unittest.TestCase):
             state = example_page_state()
             page_directory = workarea.root_dir / state.page.directory
             page_directory.mkdir()
-            (page_directory / "page.md").write_text("# Example page\n", encoding="utf-8")
+            (page_directory / "content.md").write_text("# Example page\n", encoding="utf-8")
 
             self.assertEqual(workarea.page_directory(state), page_directory)
 
@@ -216,6 +216,15 @@ class TestWorkareaMaterialization(unittest.TestCase):
             self.assertEqual(workarea.page_directory_name("Example "), "Example%20")
             self.assertEqual(workarea.page_directory_name("Example/page"), workarea.page_directory_name("Example/page"))
 
+    def test_escapes_a_leading_underscore_and_never_names_the_content_file(self) -> None:
+        with temporary_workarea() as workarea:
+            cases = [
+                ("_attachments", "%5Fattachments"), ("_Draft notes", "%5FDraft notes"), ("__init__", "%5F_init__"),
+                ("snake_case_title", "snake_case_title"), ("%5Fliteral", "%255Fliteral"), ("content.md", "content%2Emd"), ]
+            for title, expected in cases:
+                with self.subTest(title=title):
+                    self.assertEqual(workarea.page_directory_name(title), expected)
+
     @unittest.skipIf(os.name == "nt", "the error Windows reports for an over-long name component depends on its configuration")
     def test_reports_a_name_that_the_filesystem_rejects_as_too_long(self) -> None:
         with temporary_workarea() as workarea:
@@ -232,13 +241,13 @@ class TestWorkareaMaterialization(unittest.TestCase):
         with temporary_workarea() as workarea:
             staging = workarea.stage_page("Example page", "# Example\n\nText\n", {})
 
-            self.assertEqual((staging / "page.md").read_bytes(), b"# Example\n\nText\n")
+            self.assertEqual((staging / "content.md").read_bytes(), b"# Example\n\nText\n")
 
     def test_windows_rejects_renaming_the_current_page_directory(self) -> None:
         with temporary_workarea() as workarea:
             source = workarea.root_dir / "Example page"
             source.mkdir()
-            (source / "page.md").write_text("previous\n", encoding="utf-8")
+            (source / "content.md").write_text("previous\n", encoding="utf-8")
             (source / "_attachments").mkdir()
             staging = workarea.stage_page("Renamed", "replacement\n", {})
             original_cwd = os.getcwd()
@@ -252,13 +261,13 @@ class TestWorkareaMaterialization(unittest.TestCase):
                 os.chdir(original_cwd)
 
             self.assertTrue(source.is_dir())
-            self.assertEqual((source / "page.md").read_text(encoding="utf-8"), "previous\n")
+            self.assertEqual((source / "content.md").read_text(encoding="utf-8"), "previous\n")
 
     def test_stages_and_installs_one_complete_page(self) -> None:
         with temporary_workarea() as workarea:
             staging = workarea.stage_page("Example page", "# Example\n", {"diagram.png": b"PNG", "report.xlsx": b"XLSX"})
 
-            self.assertEqual((staging / "page.md").read_text(encoding="utf-8"), "# Example\n")
+            self.assertEqual((staging / "content.md").read_text(encoding="utf-8"), "# Example\n")
             self.assertEqual((staging / "_attachments" / "diagram.png").read_bytes(), b"PNG")
             self.assertFalse((workarea.root_dir / "Example page").exists())
 
@@ -271,14 +280,14 @@ class TestWorkareaMaterialization(unittest.TestCase):
         with temporary_workarea() as workarea:
             target = workarea.root_dir / "Example page"
             target.mkdir()
-            (target / "page.md").write_text("previous\n", encoding="utf-8")
-            before = (target / "page.md").read_text(encoding="utf-8")
+            (target / "content.md").write_text("previous\n", encoding="utf-8")
+            before = (target / "content.md").read_text(encoding="utf-8")
             staging = workarea.stage_page("Example page", "replacement\n", {})
 
             with self.assertRaises(Workarea.Error):
                 workarea.install_page(staging, "Example page")
 
-            self.assertEqual((target / "page.md").read_text(encoding="utf-8"), before)
+            self.assertEqual((target / "content.md").read_text(encoding="utf-8"), before)
 
             with self.assertRaises(Workarea.Error):
                 workarea.stage_page("Other page", "content", {"../unsafe": b"x"})
@@ -306,7 +315,7 @@ class TestWorkareaMaterialization(unittest.TestCase):
         with temporary_workarea() as workarea:
             target = workarea.root_dir / "Example page"
             target.mkdir()
-            (target / "page.md").write_text("previous\n", encoding="utf-8")
+            (target / "content.md").write_text("previous\n", encoding="utf-8")
             (target / "_attachments").mkdir()
             directory_inode = target.stat().st_ino
             attachment_inode = (target / "_attachments").stat().st_ino
@@ -314,7 +323,7 @@ class TestWorkareaMaterialization(unittest.TestCase):
 
             workarea.install_page(staging, "Example page", replace=True)
 
-            self.assertEqual((target / "page.md").read_text(encoding="utf-8"), "replacement\n")
+            self.assertEqual((target / "content.md").read_text(encoding="utf-8"), "replacement\n")
             self.assertEqual((target / "_attachments" / "new.txt").read_bytes(), b"new")
             self.assertEqual(target.stat().st_ino, directory_inode)
             self.assertEqual((target / "_attachments").stat().st_ino, attachment_inode)
@@ -325,7 +334,7 @@ class TestWorkareaMaterialization(unittest.TestCase):
                 with temporary_workarea() as workarea:
                     source = workarea.root_dir / "Example page"
                     source.mkdir()
-                    (source / "page.md").write_text("previous\n")
+                    (source / "content.md").write_text("previous\n")
                     (source / "notes.txt").write_text("notes\n")
                     attachments = source / "_attachments"
                     attachments.mkdir()
@@ -352,7 +361,7 @@ class TestWorkareaMaterialization(unittest.TestCase):
                         os.chdir(original_cwd)
 
                     if os.name == "nt" and name != source.name:
-                        self.assertEqual((source / "page.md").read_text(), "previous\n")
+                        self.assertEqual((source / "content.md").read_text(), "previous\n")
                         self.assertTrue((source / "_attachments/old.txt").exists())
                         self.assertFalse((source / "_attachments/new.txt").exists())
                         continue
@@ -361,7 +370,7 @@ class TestWorkareaMaterialization(unittest.TestCase):
                     self.assertEqual(target.stat().st_ino, source_inode)
                     self.assertEqual((target / "_attachments").stat().st_ino, attachment_inode)
                     self.assertEqual((target / "notes.txt").stat().st_ino, notes_inode)
-                    self.assertEqual((target / "page.md").read_text(), "replacement\n")
+                    self.assertEqual((target / "content.md").read_text(), "replacement\n")
                     self.assertFalse((target / "_attachments/old.txt").exists())
                     self.assertEqual((target / "_attachments/new.txt").read_bytes(), b"new")
 
@@ -371,7 +380,7 @@ class TestWorkareaMaterialization(unittest.TestCase):
                 with temporary_workarea() as workarea:
                     source = workarea.root_dir / "Example page"
                     source.mkdir()
-                    (source / "page.md").write_text("previous\n")
+                    (source / "content.md").write_text("previous\n")
                     (source / "_attachments").mkdir()
                     (source / "_attachments/old.txt").write_bytes(b"old")
                     inode = source.stat().st_ino
@@ -381,7 +390,7 @@ class TestWorkareaMaterialization(unittest.TestCase):
                             raise RuntimeError("commit failed")
 
                     self.assertEqual(source.stat().st_ino, inode)
-                    self.assertEqual((source / "page.md").read_text(), "previous\n")
+                    self.assertEqual((source / "content.md").read_text(), "previous\n")
                     self.assertEqual((source / "_attachments/old.txt").read_bytes(), b"old")
                     self.assertFalse((source / "_attachments/new.txt").exists())
 
@@ -422,7 +431,7 @@ class TestWorkareaRelocation(unittest.TestCase):
     def _page_directory(self, workarea, directory):
         path = workarea.root_dir.joinpath(*directory.split("/"))
         path.mkdir(parents=True)
-        (path / "page.md").write_text("previous\n", encoding="utf-8")
+        (path / "content.md").write_text("previous\n", encoding="utf-8")
         (path / "_attachments").mkdir()
         return path
 
@@ -438,14 +447,14 @@ class TestWorkareaRelocation(unittest.TestCase):
             self.assertEqual(target, workarea.root_dir / "New parent" / "Page")
             self.assertFalse(source.exists())
             self.assertEqual((target / "notes.txt").read_text(encoding="utf-8"), "unmanaged\n")
-            self.assertTrue((target / "Child" / "page.md").is_file())
+            self.assertTrue((target / "Child" / "content.md").is_file())
 
     def test_moving_to_the_same_directory_changes_nothing(self) -> None:
         with temporary_workarea() as workarea:
             source = self._page_directory(workarea, "Page")
 
             self.assertEqual(workarea.relocate(source, "Page"), source)
-            self.assertTrue((source / "page.md").is_file())
+            self.assertTrue((source / "content.md").is_file())
 
     def test_refuses_a_directory_assigned_to_another_cached_page(self) -> None:
         with temporary_workarea() as workarea:
@@ -498,7 +507,7 @@ class TestWorkareaNestedPageDirectories(unittest.TestCase):
     def _page_directory(self, workarea, directory):
         path = workarea.root_dir.joinpath(*directory.split("/"))
         path.mkdir(parents=True)
-        (path / "page.md").write_text("previous\n", encoding="utf-8")
+        (path / "content.md").write_text("previous\n", encoding="utf-8")
         (path / "_attachments").mkdir()
         return path
 
@@ -532,7 +541,7 @@ class TestWorkareaNestedPageDirectories(unittest.TestCase):
             target = workarea.install_page(staging, "Root/Child")
 
             self.assertEqual(target, workarea.root_dir / "Root" / "Child")
-            self.assertEqual((target / "page.md").read_text(encoding="utf-8"), "# Child\n")
+            self.assertEqual((target / "content.md").read_text(encoding="utf-8"), "# Child\n")
             self.assertEqual((target / "_attachments/diagram.png").read_bytes(), b"PNG")
 
     def test_renames_a_nested_page_directory_within_its_parent(self) -> None:
@@ -546,7 +555,7 @@ class TestWorkareaNestedPageDirectories(unittest.TestCase):
 
             self.assertEqual(target, workarea.root_dir / "Root" / "New")
             self.assertFalse(source.exists())
-            self.assertEqual((target / "page.md").read_text(encoding="utf-8"), "replacement\n")
+            self.assertEqual((target / "content.md").read_text(encoding="utf-8"), "replacement\n")
             self.assertEqual((target / "notes.txt").read_text(encoding="utf-8"), "unmanaged\n")
 
     def test_rejects_a_previous_directory_outside_the_workarea(self) -> None:

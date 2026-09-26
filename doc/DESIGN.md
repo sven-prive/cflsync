@@ -48,7 +48,7 @@ Pandoc provides the GFM reader and writer. The Python implementation exposes
 AST internally. The current Markdown dialect is GFM. The converters have no
 cache, remote-page, or workspace state.
 
-On pull, the ADF body becomes canonical GFM for `page.md`. On push, `page.md`
+On pull, the ADF body becomes canonical GFM for `content.md`. On push, `content.md`
 becomes ADF for the versioned API update. The synchronization coordinator owns
 cache state, staging, attachment resolution, and concurrent-edit handling. Its
 change inspection is a separate concern: `PageInspector` compares local files,

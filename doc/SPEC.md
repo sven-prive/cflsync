@@ -57,7 +57,7 @@ status` accept a page reference: a numeric page ID, page title, local GFM file,
 or local page directory. The resolver classifies the argument in this order:
 
 1. An existing filesystem path is a local reference. A file must be managed
-   `page.md`; a directory must contain that file. Its cache entry supplies the
+   `content.md`; a directory must contain that file. Its cache entry supplies the
    page ID.
 2. A non-path argument containing only decimal digits is a Confluence page ID.
 3. Any other argument is a page title.
@@ -88,20 +88,24 @@ directories. The initial layout is:
     cache/
       123456.json
   <page-title>/
-    page.md
+    content.md
     _attachments/
       <attachment filename>
 ```
 
-`page.md` contains GitHub Flavored Markdown (GFM); `_attachments` contains
+`content.md` contains GitHub Flavored Markdown (GFM); `_attachments` contains
 downloaded attachment files. `.cflsync/profile` selects the credential profile.
 `.cflsync/root` holds the root page ID as one numeric line.
 `.cflsync/cache/<page-id>.json` is private synchronization state, not page
 content.
 
 The page directory name is a deterministic filesystem-safe encoding of the
-remote title. It is presentation only: the cache's page ID and directory name
-are authoritative. A pull renames a changed title only if its target is unused;
+remote title: characters other than ASCII letters and digits, space, `-`, `_`,
+and `~` are percent-encoded, `.` always as `%2E`. A leading `_` is also
+encoded, as `%5F`, so that names starting with `_`, such as `_attachments`,
+stay reserved for cflsync, and no title can produce the name `content.md`. It
+is presentation only: the cache's page ID and directory name are
+authoritative. A pull renames a changed title only if its target is unused;
 otherwise it stops without overwriting data.
 
 On Windows, a title change cannot rename the page directory when cflsync is
@@ -122,7 +126,7 @@ ordinary links. Filenames are validated to prevent traversal, and duplicate
 manifest names or attachment IDs are rejected as ambiguous.
 
 On pull, the remote attachment manifest determines managed local files. A local
-file under `_attachments/` that `page.md` links to also becomes managed, so new
+file under `_attachments/` that `content.md` links to also becomes managed, so new
 attachments can be introduced locally; files that nothing links to stay
 unmanaged. On push, managed files are uploaded or updated and previously
 managed files removed locally are deleted remotely. Attachments outside the
@@ -226,7 +230,7 @@ uploading it over remote changes. The update still uses the current Confluence
 version, so a concurrent edit between the check and the update is a conflict.
 
 Push never writes local files. It uploads new and changed managed attachments,
-converts `page.md` to ADF, updates the page, and deletes previously managed
+converts `content.md` to ADF, updates the page, and deletes previously managed
 attachments removed locally, in that order. The title heading that pull adds is
 removed before conversion and is not part of the body; editing it is rejected,
 because push does not rename pages.
@@ -258,7 +262,7 @@ page is already absent, it performs that local cleanup without a remote delete.
 
 `page pull` stages downloads, conversion, attachment-path validation, and
 content validation in a temporary directory. For an existing page it preserves
-the page and attachment directories, atomically replaces `page.md` and each
+the page and attachment directories, atomically replaces `content.md` and each
 managed attachment, and writes the cache last. Only a title change renames the
 existing page directory. Backups allow rollback of file changes and the rename
 if installation or the cache write fails. These individual replacements are

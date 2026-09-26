@@ -90,7 +90,7 @@ class TestPageMove(unittest.TestCase):
                 with temporary_workarea() as workarea:
                     self._pull(workarea)
                     if local:
-                        (workarea.root_dir / "Example page/page.md").write_text("# Example page\n\nEdited\n", encoding="utf-8")
+                        (workarea.root_dir / "Example page/content.md").write_text("# Example page\n\nEdited\n", encoding="utf-8")
                     else:
                         self.site.content["123456"]["version"] = 18
                     before = self._snapshot(workarea)

@@ -73,7 +73,7 @@ class TestPageCreate(unittest.TestCase):
             directory = workarea.page_directory(state)
             self.assertEqual(status, 0)
             self.assertEqual(state.page.title, "New page")
-            self.assertEqual((directory / "page.md").read_text(), "# New page\n")
+            self.assertEqual((directory / "content.md").read_text(), "# New page\n")
             self.assertEqual((directory / "_attachments/diagram.png").read_bytes(), b"PNG")
             create_request = transport.requests[2]
             self.assertEqual(create_request.method, "POST")
@@ -119,7 +119,7 @@ class TestPageCreate(unittest.TestCase):
             parent_state.save(workarea.cache_path(parent_state.page.id))
             parent_directory = workarea.root_dir / parent_state.page.directory
             parent_directory.mkdir()
-            (parent_directory / "page.md").write_text("# Parent page\n", encoding="utf-8")
+            (parent_directory / "content.md").write_text("# Parent page\n", encoding="utf-8")
             page = created_page_fixture()
             responses = [MockResponse.from_json(parent), MockResponse.from_json(page), *self._pull_responses(page)]
 

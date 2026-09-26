@@ -86,7 +86,7 @@ class TestPagePush(unittest.TestCase):
             MockResponse.from_json(updated), ]
 
     def _edit(self, workarea, markdown="# Example page\n\nEdited\n"):
-        (workarea.root_dir / "Example page/page.md").write_text(markdown, encoding="utf-8")
+        (workarea.root_dir / "Example page/content.md").write_text(markdown, encoding="utf-8")
 
     def _snapshot(self, workarea):
         return {
@@ -133,7 +133,7 @@ class TestPagePush(unittest.TestCase):
         with temporary_workarea() as workarea:
             self._pull(workarea)
             markdown = "# Example page\n\nEdited\n"
-            page_path = workarea.root_dir / "Example page/page.md"
+            page_path = workarea.root_dir / "Example page/content.md"
             # Exercise an ordinary Windows editor save on every platform.
             page_path.write_text(markdown, encoding="utf-8", newline="\r\n")
 

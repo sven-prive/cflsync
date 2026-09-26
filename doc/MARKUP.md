@@ -1,6 +1,6 @@
 # Writing Confluence pages
 
-`page.md` uses GitHub Flavored Markdown (GFM). This guide covers the Markdown
+`content.md` uses GitHub Flavored Markdown (GFM). This guide covers the Markdown
 that cflsync converts to editable Confluence content. Pulling a page can also
 produce preserved Confluence content that should not be edited as Markdown;
 see [Macros](#macros).

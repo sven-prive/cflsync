@@ -49,7 +49,7 @@ cflsync page status PAGE_REF
 ```
 
 `PAGE_REF` may be a numeric Confluence page ID, an exact page title, a managed
-local `page.md` file, or a managed page directory.
+local `content.md` file, or a managed page directory.
 
 `init ROOT_PAGE_REF` creates a workarea anchored at a root page, given as a page
 ID or exact title; it contacts Confluence with the profile's credentials, and
@@ -62,7 +62,7 @@ the remote version is unchanged. Unmanaged files are preserved.
 
 Push reports when there is nothing to upload, and refuses to overwrite remote
 changes. Use `page push --force PAGE_REF` to prefer local content. The first
-heading of `page.md` is the page title and cannot be edited; push does not
+heading of `content.md` is the page title and cannot be edited; push does not
 rename pages. Use `page rename PAGE_REF TITLE` to change the remote title,
 generated heading, and title-derived local directory as one explicit operation.
 

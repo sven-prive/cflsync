@@ -13,7 +13,7 @@ from pathlib import Path
 
 from collections.abc import Iterator, Mapping
 
-from .workarea import MediaResolver, PageState
+from .workarea import CONTENT_FILENAME, MediaResolver, PageState
 
 ATTACHMENTS_PREFIX = "_attachments/"
 
@@ -66,7 +66,7 @@ class PageInspector:
 
     def inspect(self, directory: Path, state: PageState, page, attachments) -> PageChanges:
         """Report local and remote changes for one cached page."""
-        path = directory / "page.md"
+        path = directory / CONTENT_FILENAME
         markdown = path.read_text(encoding="utf-8") if path.is_file() else None
 
         return PageChanges(
@@ -82,7 +82,7 @@ class PageInspector:
             if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != attachment.content_hash:
                 changed.add(name)
 
-        # A referenced local file becomes managed, so page.md can introduce attachments.
+        # A referenced local file becomes managed, so content.md can introduce attachments.
         for name in self.referenced_attachments(markdown or ""):
             if name not in state.attachments and (directory / "_attachments" / name).is_file():
                 changed.add(name)
