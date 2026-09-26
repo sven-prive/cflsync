@@ -46,7 +46,7 @@ class PageInspector:
         self._pandoc_runner = pandoc
 
     def content_hash(self, markdown: str) -> str:
-        """Return the format-1 content hash of *markdown*, canonicalized through Pandoc."""
+        """Return the page state content hash of *markdown*, canonicalized through Pandoc."""
         canonical = self._pandoc_runner.pandoc_to_gfm(self._pandoc_runner.gfm_to_pandoc(markdown))
 
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

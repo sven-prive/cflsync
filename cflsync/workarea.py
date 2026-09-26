@@ -93,15 +93,23 @@ class StateError(SyncError):
 
 
 class PageMetadata:
-    """The last synchronized state of one Confluence page."""
+    """The last synchronized state of one Confluence page.
 
-    def __init__(self, id: str, title: str, directory: str, version: int, content_hash: str) -> None:
+    *parent_id* is the cached parent page, whose directory contains this page's directory, or ``None`` for the root
+    page. *directory* is this page's own directory name, relative to its parent's directory.
+    """
+
+    def __init__(self, id: str, title: str, parent_id: str | None, directory: str, version: int, content_hash: str) -> None:
         if not id or not id.isdigit():
             raise StateError("page.id must be a numeric identifier")
         if not title:
             raise StateError("page.title must be a non-empty string")
+        if parent_id is not None and (not parent_id or not parent_id.isdigit()):
+            raise StateError("page.parent_id must be a numeric identifier or null")
         if not directory:
             raise StateError("page.directory must be a non-empty string")
+        if directory in {".", ".."} or "/" in directory or "\\" in directory or "\x00" in directory:
+            raise StateError("page.directory must be a single directory name")
         if version < 1:
             raise StateError("page.version must be a positive integer")
         if re.fullmatch(r"[0-9a-f]{64}", content_hash) is None:
@@ -109,6 +117,7 @@ class PageMetadata:
 
         self.id = id
         self.title = title
+        self.parent_id = parent_id
         self.directory = directory
         self.version = version
         self.content_hash = content_hash
@@ -117,13 +126,14 @@ class PageMetadata:
         if not isinstance(other, PageMetadata):
             return NotImplemented
 
-        return (self.id, self.title, self.directory, self.version,
-                self.content_hash) == (other.id, other.title, other.directory, other.version, other.content_hash)
+        return (self.id, self.title, self.parent_id, self.directory, self.version,
+                self.content_hash) == (other.id, other.title, other.parent_id, other.directory, other.version, other.content_hash)
 
     def to_json(self) -> dict[str, object]:
         return {
             "id": self.id,
             "title": self.title,
+            "parent_id": self.parent_id,
             "directory": self.directory,
             "version": self.version,
             "content_hash": self.content_hash}
@@ -137,6 +147,7 @@ class PageMetadata:
         try:
             id = value["id"]
             title = value["title"]
+            parent_id = value["parent_id"]
             directory = value["directory"]
             version = value["version"]
             content_hash = value["content_hash"]
@@ -146,6 +157,8 @@ class PageMetadata:
             raise StateError("page.id must be a string")
         if not isinstance(title, str):
             raise StateError("page.title must be a string")
+        if parent_id is not None and not isinstance(parent_id, str):
+            raise StateError("page.parent_id must be a string or null")
         if not isinstance(directory, str):
             raise StateError("page.directory must be a string")
         if type(version) is not int:
@@ -153,7 +166,7 @@ class PageMetadata:
         if not isinstance(content_hash, str):
             raise StateError("page.content_hash must be a string")
 
-        return cls(id, title, directory, version, content_hash)
+        return cls(id, title, parent_id, directory, version, content_hash)
 
 
 class AttachmentMetadata:
@@ -202,11 +215,11 @@ class AttachmentMetadata:
 
 
 class PageState:
-    """Format-1 synchronization state for one managed page."""
+    """Format-2 synchronization state for one managed page."""
 
-    def __init__(self, page: PageMetadata, attachments: Mapping[str, AttachmentMetadata], format: int = 1) -> None:
-        if format != 1:
-            raise StateError("unsupported state format")
+    def __init__(self, page: PageMetadata, attachments: Mapping[str, AttachmentMetadata], format: int = 2) -> None:
+        if format != 2:
+            raise StateError(f"unsupported state format {format}")
 
         copied_attachments: dict[str, AttachmentMetadata] = {}
         for name, attachment in attachments.items():
@@ -234,7 +247,7 @@ class PageState:
 
     @classmethod
     def from_json(cls, value: object) -> "PageState":
-        """Validate and decode a format-1 state JSON value."""
+        """Validate and decode a format-2 state JSON value."""
         if not isinstance(value, Mapping):
             raise StateError("state must be an object")
         try:
@@ -304,6 +317,52 @@ class PageState:
                     temporary_path.unlink()
                 except FileNotFoundError:
                     pass
+
+
+class PageTree:
+    """The cached pages of a workarea, with each page's directory derived from its chain of cached parents.
+
+    Every cached page except the root page has a cached parent. A missing parent, a page other than the root without
+    a parent, a root with a parent, or a cycle makes the cache invalid.
+    """
+
+    def __init__(self, states: Mapping[str, PageState], root_page_id: str) -> None:
+        self.states = dict(states)
+        self.root_page_id = root_page_id
+        self._directories = {page_id: self._derive_directory(page_id) for page_id in self.states}
+
+    def directory(self, page_id: str) -> str:
+        """Return a cached page's directory relative to the workarea root, with "/" separators."""
+        if page_id not in self._directories:
+            raise StateError(f"page '{page_id}' is not cached")
+
+        return self._directories[page_id]
+
+    def _derive_directory(self, page_id):
+        names = []
+        seen = set()
+        current = page_id
+        while True:
+            if current in seen:
+                raise StateError(f"the cached parents of page '{page_id}' form a cycle")
+
+            seen.add(current)
+            state = self.states.get(current)
+            if state is None:
+                raise StateError(f"cached parent page '{current}' of page '{page_id}' is missing")
+
+            names.insert(0, state.page.directory)
+            parent_id = state.page.parent_id
+            if current == self.root_page_id:
+                if parent_id is not None:
+                    raise StateError(f"root page '{current}' must not have a cached parent")
+
+                return "/".join(names)
+
+            if parent_id is None:
+                raise StateError(f"cached page '{current}' has no parent but is not the root page '{self.root_page_id}'")
+
+            current = parent_id
 
 
 class Workarea:
@@ -414,9 +473,14 @@ class Workarea:
 
         return paths
 
+    def page_tree(self) -> PageTree:
+        """Load every cached page state as a tree anchored at this workarea's root page."""
+        states = {page_id: PageState.load(path) for page_id, path in self.page_state_paths().items()}
+        return PageTree(states, self.root_page_id)
+
     def page_directory(self, state: PageState, must_exist: bool = True) -> Path:
         """Return the safe managed path, normally requiring a directory and page.md."""
-        directory = self._page_directory_path(state.page.directory)
+        directory = self.page_directory_path(state.page.directory)
         if not must_exist:
             return directory
 
@@ -440,7 +504,7 @@ class Workarea:
 
     def page_directory_target(self, state: PageState) -> Path:
         """Return a safe, unoccupied target path for a page directory."""
-        directory = self._page_directory_path(state.page.directory)
+        directory = self.page_directory_path(state.page.directory)
         for other_id, path in self.page_state_paths().items():
             other = PageState.load(path)
             if other_id != state.page.id and other.page.directory.casefold() == state.page.directory.casefold():
@@ -455,7 +519,7 @@ class Workarea:
         cached_path = self.page_state_paths().get(state.page.id)
         cached_state = PageState.load(cached_path) if cached_path is not None else None
         if cached_state is not None and cached_state.page.directory != state.page.directory:
-            source = self._page_directory_path(cached_state.page.directory)
+            source = self.page_directory_path(cached_state.page.directory)
             if _is_windows() and _current_directory_is_inside(source):
                 raise Workarea.Error(
                     "cannot rename a page directory while it is the current directory; run cflsync from outside it")
@@ -471,14 +535,13 @@ class Workarea:
         The move is one directory rename. It is refused if another cached page is assigned the target directory, or
         if the target's parent already contains an entry with the same name, compared case-insensitively.
         """
-        target = self._page_directory_path(directory)
+        target = self.page_directory_path(directory)
         if target == source:
             return target
 
         for path in self.page_state_paths().values():
             other = PageState.load(path)
-            if other.page.directory.casefold() == directory.casefold() and self._page_directory_path(
-                    other.page.directory) != source:
+            if other.page.directory.casefold() == directory.casefold() and self.page_directory_path(other.page.directory) != source:
                 raise Workarea.Error(f"page directory '{directory}' is assigned to page '{other.page.id}'")
 
         if target.parent.is_dir():
@@ -520,7 +583,7 @@ class Workarea:
 
         *directory* is the page directory relative to the workarea root, with "/" separators.
         """
-        self._page_directory_path(directory)
+        self.page_directory_path(directory)
         if not isinstance(markdown, str):
             raise Workarea.Error("page Markdown must be a string")
 
@@ -569,14 +632,14 @@ class Workarea:
 
         *directory* is the target page directory relative to the workarea root, with "/" separators.
         """
-        target = self._page_directory_path(directory)
+        target = self.page_directory_path(directory)
         if source is not None:
             try:
                 source_directory = source.relative_to(self.root_dir).as_posix()
             except ValueError as error:
                 raise Workarea.Error("previous page directory must be inside the workarea") from error
 
-            if source.is_symlink() or source != self._page_directory_path(source_directory):
+            if source.is_symlink() or source != self.page_directory_path(source_directory):
                 raise Workarea.Error("previous page directory must be a page directory inside the workarea")
 
         if target.exists() and target != source:
@@ -657,7 +720,7 @@ class Workarea:
 
         *directory* is the page directory relative to the workarea root, with "/" separators.
         """
-        target = self._page_directory_path(directory)
+        target = self.page_directory_path(directory)
         if target.exists() and not replace:
             raise Workarea.Error(f"page directory '{directory}' already exists")
 
@@ -690,8 +753,12 @@ class Workarea:
 
         return target
 
-    def _page_directory_path(self, directory):
-        # Page directories are relative to the workarea root, with "/" separating directory names on every platform.
+    def page_directory_path(self, directory: str) -> Path:
+        """Return the resolved path of a page directory given relative to the workarea root.
+
+        *directory* separates directory names with "/" on every platform, as :meth:`PageTree.directory` returns them.
+        The resolved path must stay inside the workarea.
+        """
         components = directory.split("/")
         for component in components:
             if not component or component in {".", ".."} or Path(component).name != component:

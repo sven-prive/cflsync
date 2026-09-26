@@ -139,14 +139,15 @@ per-user configuration directory selected by `platformdirs`, relying on its
 default user ACL; cflsync does not alter Windows ACLs. Stable page IDs are
 cache keys, avoiding title-based collisions. Failed or interrupted
 initialization, staging, and private-file writes remove their temporary files
-or directories. Format 1 is:
+or directories. Format 2 is:
 
 ```json
 {
-  "format": 1,
+  "format": 2,
   "page": {
-    "id": "123456",
+    "id": "123457",
     "title": "Example page",
+    "parent_id": "123456",
     "directory": "Example page",
     "version": 17,
     "content_hash": "..."
@@ -161,9 +162,23 @@ or directories. Format 1 is:
 }
 ```
 
-For format 1, `content_hash` is SHA-256 of canonical GFM for pages and raw
-bytes for attachments. The algorithm is part of the format definition; an
-algorithm change requires a new format and cache migration or replacement.
+`parent_id` is the cached parent page, whose directory contains this page's
+directory, and is `null` for the root page. `directory` is the page's own
+directory name, relative to its parent's directory: a single name without
+separators. A page's path relative to the workarea root is derived by joining
+the directory names along the `parent_id` chain up to the root. Every cached
+page except the root must have a cached parent; a missing parent, a cycle, or
+a second page without a parent makes the cache invalid. Format-1 entries are
+refused.
+
+Until pages are placed below their parent's directory, page directories remain
+directly below the workarea root, and `parent_id` records the page's remote
+parent.
+
+`content_hash` is SHA-256 of canonical GFM for pages and raw bytes for
+attachments, unchanged since format 1. The algorithm is part of the format
+definition; an algorithm change requires a new format and cache migration or
+replacement.
 Cached versions and hashes describe the last state known to be identical
 locally and remotely.
 

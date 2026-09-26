@@ -186,8 +186,10 @@ class PagePullCommand:
             bodies[attachment.filename] = body
             metadata[attachment.filename] = AttachmentMetadata(attachment.id, attachment.version, hashlib.sha256(body).hexdigest())
 
+        # The root page's parent is outside the workarea.
+        parent_id = None if page.id == workarea.root_page_id else page.parent_id
         state = PageState(
-            PageMetadata(page.id, page.title, directory_name, page.version, inspector.content_hash(markdown)), metadata)
+            PageMetadata(page.id, page.title, parent_id, directory_name, page.version, inspector.content_hash(markdown)), metadata)
         managed = ()
         if previous is not None:
             managed = previous.attachments
@@ -255,8 +257,9 @@ class PagePushCommand:
             attachments[name] = AttachmentMetadata(remote[name].id, remote[name].version, hashlib.sha256(body).hexdigest())
 
         PageState(
-            PageMetadata(updated.id, updated.title, state.page.directory, updated.version, inspector.content_hash(markdown)),
-            attachments).save(cache_path)
+            PageMetadata(
+                updated.id, updated.title, state.page.parent_id, state.page.directory, updated.version,
+                inspector.content_hash(markdown)), attachments).save(cache_path)
 
     def _managed_attachments(self, directory, state, inspector, markdown):
         """Return the bytes of every managed attachment still present locally."""
@@ -343,7 +346,8 @@ class PageRenameCommand:
         markdown = (directory / "page.md").read_text(encoding="utf-8")
         renamed_markdown = MarkdownToADFConverter(pandoc).retitle(markdown, state.page.title, title)
         content_hash = inspector.content_hash(renamed_markdown)
-        target_state = PageState(PageMetadata(page.id, title, directory_name, page.version, content_hash), state.attachments)
+        target_state = PageState(
+            PageMetadata(page.id, title, state.page.parent_id, directory_name, page.version, content_hash), state.attachments)
         workarea.page_directory_target(target_state)
         staging = workarea.stage_page(directory_name, renamed_markdown, {}, source=directory)
         try:
@@ -352,7 +356,8 @@ class PageRenameCommand:
                 raise SyncError(f"page '{page.id}' was renamed remotely to unexpected title '{updated.title}'")
 
             renamed_state = PageState(
-                PageMetadata(updated.id, updated.title, directory_name, updated.version, content_hash), state.attachments)
+                PageMetadata(updated.id, updated.title, state.page.parent_id, directory_name, updated.version, content_hash),
+                state.attachments)
             with workarea.replace_page(staging, directory_name, directory):
                 renamed_state.save(cache_path)
         finally:
@@ -421,7 +426,7 @@ class PageMoveCommand:
             raise SyncError(f"page '{page.id}' was moved remotely with unexpected title '{updated.title}'")
 
         moved_state = PageState(
-            PageMetadata(updated.id, state.page.title, state.page.directory, updated.version, state.page.content_hash),
+            PageMetadata(updated.id, state.page.title, parent.id, state.page.directory, updated.version, state.page.content_hash),
             state.attachments)
         try:
             moved_state.save(cache_path)

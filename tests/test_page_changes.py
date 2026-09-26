@@ -33,7 +33,7 @@ class TestPageInspector(unittest.TestCase):
     def _page(self, workarea):
         """Install a page whose local files, cache, and remote metadata all agree."""
         state = PageState(
-            PageMetadata("123456", "Example page", "Example page", 17, self.inspector.content_hash(MARKDOWN)),
+            PageMetadata("123456", "Example page", None, "Example page", 17, self.inspector.content_hash(MARKDOWN)),
             {"diagram.png": AttachmentMetadata("att987654", 3,
                                                hashlib.sha256(ATTACHMENT).hexdigest())})
         directory = workarea.root_dir / "Example page"

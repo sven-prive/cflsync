@@ -31,11 +31,20 @@ def temporary_workarea(profile: str = "default", root_page_id: str = "123456") -
         yield Workarea.init(root, root_page_id, profile)
 
 
-def example_page_state(page_id: str = "123456", title: str = "Example page", directory: str = "Example page") -> PageState:
-    """Return a valid format-1 state for tests that need persisted state."""
+def example_page_state(
+        page_id: str = "123456",
+        title: str = "Example page",
+        directory: str = "Example page",
+        parent_id: str | None = None) -> PageState:
+    """Return a valid state for tests that need persisted state; by default, the fixture workarea's root page."""
     return PageState(
         page=PageMetadata(
-            id=page_id, title=title, directory=directory, version=17, content_hash=hashlib.sha256(b"page").hexdigest()),
+            id=page_id,
+            title=title,
+            parent_id=parent_id,
+            directory=directory,
+            version=17,
+            content_hash=hashlib.sha256(b"page").hexdigest()),
         attachments={
             "diagram.png": AttachmentMetadata(id="att987654", version=3, content_hash=hashlib.sha256(b"attachment").hexdigest())})
 

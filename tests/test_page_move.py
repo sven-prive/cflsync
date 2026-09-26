@@ -79,6 +79,7 @@ class TestPageMove(unittest.TestCase):
             self.assertEqual(status, 0)
             self.assertEqual(self._without_cache(self._snapshot(workarea)), self._without_cache(before))
             self.assertEqual((state.page.version, state.page.title, state.page.directory), (18, "Example page", "Example page"))
+            self.assertEqual(state.page.parent_id, "987654")
             self.assertEqual(
                 (remote["parent_id"], remote["version"], remote["title"], remote["body"]), ("987654", 18, "Example page", BODY))
 

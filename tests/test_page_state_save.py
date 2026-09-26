@@ -35,6 +35,7 @@ class TestPageStateSave(unittest.TestCase):
                 page=PageMetadata(
                     id=previous.page.id,
                     title=previous.page.title,
+                    parent_id=previous.page.parent_id,
                     directory=previous.page.directory,
                     version=18,
                     content_hash="a" * 64),

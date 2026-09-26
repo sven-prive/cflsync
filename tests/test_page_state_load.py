@@ -32,7 +32,7 @@ class TestPageStateLoad(unittest.TestCase):
     def test_rejects_an_unsupported_format(self) -> None:
         with temporary_workarea() as workarea:
             value = example_page_state().to_json()
-            value["format"] = 2
+            value["format"] = 1
             workarea.cache_path("123456").write_text(json.dumps(value), encoding="utf-8")
 
             with self.assertRaises(StateError):

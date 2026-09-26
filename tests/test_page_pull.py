@@ -342,6 +342,25 @@ class TestPagePull(unittest.TestCase):
                             self.assertEqual(self._snapshot(workarea), before)
 
 
+class TestPagePullParent(unittest.TestCase):
+
+    def test_records_the_remote_parent_except_for_the_root_page(self) -> None:
+        site = FakeConfluence()
+        site.add_page("100", "Root page")
+        site.add_page("200", "Child page", parent_id="100")
+        with temporary_workarea(root_page_id="100") as workarea:
+            config = SimpleNamespace(profiles={workarea.profile: Profile("example.atlassian.net", "user", "token")})
+            with patch("cflsync.cli.Path.cwd", return_value=workarea.root_dir):
+                with patch("cflsync.cli.Config.find", return_value=config):
+                    with patch("cflsync.cli.APIClient", return_value=site.client()):
+                        with redirect_stdout(StringIO()):
+                            PagePullCommand().run("100")
+                            PagePullCommand().run("200")
+
+            self.assertIsNone(PageState.load(workarea.cache_path("100")).page.parent_id)
+            self.assertEqual(PageState.load(workarea.cache_path("200")).page.parent_id, "100")
+
+
 class TestPagePullPathLength(unittest.TestCase):
 
     @unittest.skipIf(os.name == "nt", "the error Windows reports for an over-long name component depends on its configuration")

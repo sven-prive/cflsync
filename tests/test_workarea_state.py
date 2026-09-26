@@ -165,10 +165,8 @@ class TestWorkareaSafePaths(unittest.TestCase):
 
     def test_rejects_a_traversal_page_directory(self) -> None:
         with temporary_workarea() as workarea:
-            state = example_page_state(directory="../outside")
-
             with self.assertRaises(Workarea.Error):
-                workarea.page_directory(state)
+                workarea.page_directory_path("../outside")
 
     def test_rejects_a_missing_page_state(self) -> None:
         with temporary_workarea() as workarea:
@@ -508,16 +506,14 @@ class TestWorkareaNestedPageDirectories(unittest.TestCase):
         with temporary_workarea() as workarea:
             path = self._page_directory(workarea, "Root/Child/Grandchild")
 
-            directory = workarea.page_directory(example_page_state(directory="Root/Child/Grandchild"))
-
-            self.assertEqual(directory, path)
+            self.assertEqual(workarea.page_directory_path("Root/Child/Grandchild"), path)
 
     def test_rejects_malformed_relative_page_directories(self) -> None:
         with temporary_workarea() as workarea:
             for directory in ["/Root", "Root/", "Root//Child", "Root/./Child", "Root/../Child", "../Root", "."]:
                 with self.subTest(directory=directory):
                     with self.assertRaisesRegex(Workarea.Error, "relative path of directory names"):
-                        workarea.page_directory(example_page_state(directory=directory), must_exist=False)
+                        workarea.page_directory_path(directory)
 
     @unittest.skipIf(os.name == "nt", "creating symbolic links needs extra privileges on Windows")
     def test_rejects_a_nested_directory_that_escapes_through_a_symbolic_link(self) -> None:
@@ -526,7 +522,7 @@ class TestWorkareaNestedPageDirectories(unittest.TestCase):
                 (workarea.root_dir / "Root").symlink_to(outside, target_is_directory=True)
 
                 with self.assertRaisesRegex(Workarea.Error, "outside the workarea"):
-                    workarea.page_directory(example_page_state(directory="Root/Child"), must_exist=False)
+                    workarea.page_directory_path("Root/Child")
 
     def test_stages_and_installs_a_nested_page(self) -> None:
         with temporary_workarea() as workarea:
@@ -538,18 +534,6 @@ class TestWorkareaNestedPageDirectories(unittest.TestCase):
             self.assertEqual(target, workarea.root_dir / "Root" / "Child")
             self.assertEqual((target / "page.md").read_text(encoding="utf-8"), "# Child\n")
             self.assertEqual((target / "_attachments/diagram.png").read_bytes(), b"PNG")
-
-    def test_checks_collisions_among_siblings_in_the_parent_directory(self) -> None:
-        with temporary_workarea() as workarea:
-            self._page_directory(workarea, "Root")
-            (workarea.root_dir / "Child").mkdir()
-            state = example_page_state(directory="Root/Child")
-
-            self.assertEqual(workarea.page_directory_target(state), workarea.root_dir / "Root" / "Child")
-
-            (workarea.root_dir / "Root" / "child").mkdir()
-            with self.assertRaisesRegex(Workarea.Error, "'Root/Child' already exists"):
-                workarea.page_directory_target(state)
 
     def test_renames_a_nested_page_directory_within_its_parent(self) -> None:
         with temporary_workarea() as workarea:
