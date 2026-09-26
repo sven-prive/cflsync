@@ -7,6 +7,7 @@
 # Delay annotation evaluation so nested type references work on Python 3.11+.
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
@@ -416,7 +417,7 @@ class Workarea:
         try:
             shutil.rmtree(directory)
         except OSError as error:
-            raise Workarea.Error(f"cannot remove managed page directory: {error}") from error
+            raise Workarea.Error(f"cannot remove managed page directory: {filesystem_error_message(error)}") from error
 
     def page_directory_target(self, state: PageState) -> Path:
         """Return a safe, unoccupied target path for a page directory."""
@@ -426,9 +427,11 @@ class Workarea:
             if other_id != state.page.id and other.page.directory.casefold() == state.page.directory.casefold():
                 raise Workarea.Error(f"page directory '{state.page.directory}' is assigned to page '{other_id}'")
 
-        for existing in self.root_dir.iterdir():
-            if existing.name.casefold() == state.page.directory.casefold() and existing != directory:
-                raise Workarea.Error(f"page directory '{state.page.directory}' already exists")
+        name = state.page.directory.split("/")[-1]
+        if directory.parent.is_dir():
+            for existing in directory.parent.iterdir():
+                if existing.name.casefold() == name.casefold() and existing != directory:
+                    raise Workarea.Error(f"page directory '{state.page.directory}' already exists")
 
         cached_path = self.page_state_paths().get(state.page.id)
         cached_state = PageState.load(cached_path) if cached_path is not None else None
@@ -442,6 +445,37 @@ class Workarea:
             raise Workarea.Error(f"page directory '{state.page.directory}' already exists")
 
         return directory
+
+    def relocate(self, source: Path, directory: str) -> Path:
+        """Move a page directory, with everything below it, to *directory* relative to the workarea root.
+
+        The move is one directory rename. It is refused if another cached page is assigned the target directory, or
+        if the target's parent already contains an entry with the same name, compared case-insensitively.
+        """
+        target = self._page_directory_path(directory)
+        if target == source:
+            return target
+
+        for path in self.page_state_paths().values():
+            other = PageState.load(path)
+            if other.page.directory.casefold() == directory.casefold() and self._page_directory_path(
+                    other.page.directory) != source:
+                raise Workarea.Error(f"page directory '{directory}' is assigned to page '{other.page.id}'")
+
+        if target.parent.is_dir():
+            for existing in target.parent.iterdir():
+                if existing.name.casefold() == target.name.casefold() and existing != source:
+                    raise Workarea.Error(f"page directory '{directory}' already exists")
+
+        if _is_windows() and _current_directory_is_inside(source):
+            raise Workarea.Error("cannot rename a page directory while it is the current directory; run cflsync from outside it")
+
+        try:
+            os.rename(source, target)
+        except OSError as error:
+            raise Workarea.Error(f"cannot move page directory: {filesystem_error_message(error)}") from error
+
+        return target
 
     def page_directory_name(self, title: str) -> str:
         """Return the deterministic safe directory name for a page title."""
@@ -458,13 +492,16 @@ class Workarea:
 
     def stage_page(
         self,
-        directory_name: str,
+        directory: str,
         markdown: str,
         attachments: Mapping[str, bytes],
         source: Path | None = None,
         managed_attachments: Iterable[str] = ()) -> Path:
-        """Write one complete page representation to a hidden staging directory."""
-        self._page_directory_path(directory_name)
+        """Write one complete page representation to a hidden staging directory.
+
+        *directory* is the page directory relative to the workarea root, with "/" separators.
+        """
+        self._page_directory_path(directory)
         if not isinstance(markdown, str):
             raise Workarea.Error("page Markdown must be a string")
 
@@ -498,7 +535,7 @@ class Workarea:
             raise
         except (OSError, TypeError) as error:
             shutil.rmtree(staging, ignore_errors=True)
-            raise Workarea.Error(f"cannot stage page directory: {error}") from error
+            raise Workarea.Error(f"cannot stage page directory: {filesystem_error_message(error)}") from error
         except BaseException:
             shutil.rmtree(staging, ignore_errors=True)
             raise
@@ -506,20 +543,28 @@ class Workarea:
     @contextmanager
     def replace_page(self,
                      staging: Path,
-                     directory_name: str,
+                     directory: str,
                      source: Path | None = None,
                      managed_attachments: Iterable[str] = ()) -> Iterator[Path]:
-        """Replace managed files, retaining backups until the caller commits state."""
-        target = self._page_directory_path(directory_name)
+        """Replace managed files, retaining backups until the caller commits state.
+
+        *directory* is the target page directory relative to the workarea root, with "/" separators.
+        """
+        target = self._page_directory_path(directory)
         if source is not None:
-            if source.is_symlink() or source != self._page_directory_path(source.name):
-                raise Workarea.Error("previous page directory must be directly below the workarea root")
+            try:
+                source_directory = source.relative_to(self.root_dir).as_posix()
+            except ValueError as error:
+                raise Workarea.Error("previous page directory must be inside the workarea") from error
+
+            if source.is_symlink() or source != self._page_directory_path(source_directory):
+                raise Workarea.Error("previous page directory must be a page directory inside the workarea")
 
         if target.exists() and target != source:
-            raise Workarea.Error(f"page directory '{directory_name}' already exists")
+            raise Workarea.Error(f"page directory '{directory}' already exists")
 
         if source is None:
-            self.install_page(staging, directory_name)
+            self.install_page(staging, directory)
             try:
                 yield target
             except BaseException:
@@ -541,11 +586,7 @@ class Workarea:
         cleanup = False
         try:
             if source != target:
-                if _is_windows() and _current_directory_is_inside(source):
-                    raise Workarea.Error(
-                        "cannot rename a page directory while it is the current directory; run cflsync from outside it")
-
-                os.rename(source, target)
+                self.relocate(source, directory)
                 renamed = True
 
             attachment_directory = target / "_attachments"
@@ -592,11 +633,14 @@ class Workarea:
             if cleanup:
                 shutil.rmtree(backup, ignore_errors=True)
 
-    def install_page(self, staging: Path, directory_name: str, replace: bool = False) -> Path:
-        """Install a new page directory or atomically replace its files."""
-        target = self._page_directory_path(directory_name)
+    def install_page(self, staging: Path, directory: str, replace: bool = False) -> Path:
+        """Install a new page directory or atomically replace its files.
+
+        *directory* is the page directory relative to the workarea root, with "/" separators.
+        """
+        target = self._page_directory_path(directory)
         if target.exists() and not replace:
-            raise Workarea.Error(f"page directory '{directory_name}' already exists")
+            raise Workarea.Error(f"page directory '{directory}' already exists")
 
         try:
             staging = staging.resolve()
@@ -611,29 +655,30 @@ class Workarea:
             try:
                 os.replace(staging, target)
             except OSError as error:
-                raise Workarea.Error(f"cannot install page directory: {error}") from error
+                raise Workarea.Error(f"cannot install page directory: {filesystem_error_message(error)}") from error
 
             return target
 
         filenames = {path.name for path in (target / "_attachments").iterdir()}
         filenames.update(path.name for path in (staging / "_attachments").iterdir())
         try:
-            with self.replace_page(staging, directory_name, target, filenames):
+            with self.replace_page(staging, directory, target, filenames):
                 pass
         except OSError as error:
-            raise Workarea.Error(f"cannot replace page directory: {error}") from error
+            raise Workarea.Error(f"cannot replace page directory: {filesystem_error_message(error)}") from error
 
         shutil.rmtree(staging, ignore_errors=True)
 
         return target
 
-    def _page_directory_path(self, directory_name: str) -> Path:
-        directory = Path(directory_name)
-        if directory.is_absolute() or directory.name != directory_name or directory_name in {".", ".."}:
-            raise Workarea.Error("page directory must be a single relative name")
+    def _page_directory_path(self, directory):
+        # Page directories are relative to the workarea root, with "/" separating directory names on every platform.
+        components = directory.split("/")
+        for component in components:
+            if not component or component in {".", ".."} or Path(component).name != component:
+                raise Workarea.Error(f"page directory '{directory}' must be a relative path of directory names")
 
-        path = self.root_dir / directory
-        _check_windows_path_length(path)
+        path = self.root_dir.joinpath(*components)
         path = path.resolve()
         try:
             path.relative_to(self.root_dir)
@@ -652,7 +697,6 @@ class Workarea:
             raise Workarea.Error(f"attachment filename '{filename}' is unsafe")
 
         path = attachment_directory / filename
-        _check_windows_path_length(path)
 
         return path
 
@@ -786,9 +830,22 @@ def _current_directory_is_inside(directory: Path) -> bool:
     return True
 
 
-def _check_windows_path_length(path: Path) -> None:
-    if _is_windows() and len(str(path)) >= 260:
-        raise Workarea.Error(f"path is too long for Windows: '{path}'")
+def filesystem_error_message(error: Exception) -> str:
+    """Describe a filesystem error, explaining a path that the operating system rejected as too long."""
+    if not isinstance(error, OSError) or not _is_path_length_error(error):
+        return str(error)
+
+    paths = [str(path) for path in (error.filename, error.filename2) if path is not None]
+    if not paths:
+        return f"a path is too long for this system: {error}"
+
+    path = max(paths, key=len)
+    return f"path is too long for this system ({len(path)} characters): '{path}'; on Windows, enable long path support"
+
+
+def _is_path_length_error(error):
+    # Windows reports ERROR_FILENAME_EXCED_RANGE (206); other systems report ENAMETOOLONG.
+    return error.errno == errno.ENAMETOOLONG or getattr(error, "winerror", None) == 206
 
 
 # vim: set ts=4 sw=4 et tw=132:

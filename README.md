@@ -72,6 +72,25 @@ longer exists, it removes only the local page and cache state.
 Use `cflsync --help` for top-level help, `cflsync page --help` for page-command
 help, and `cflsync page COMMAND --help` for a command's arguments.
 
+### Long paths
+
+Page directory names are derived from page titles, so long titles in a deeply
+located workarea can produce long paths. cflsync does not limit path lengths
+itself: when the operating system rejects a path as too long, the command fails
+without changing local state and reports the path and its length.
+
+On Windows, paths are limited to 260 characters unless long path support is
+enabled:
+
+- Enable `LongPathsEnabled` in the registry (Windows 10, version 1607, or
+  later), for example with
+  `New-ItemProperty -Path HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem -Name LongPathsEnabled -Value 1 -PropertyType DWORD -Force`
+  in an elevated PowerShell. Applications such as Windows Explorer may still
+  not support long paths.
+- For Git, set `git config --global core.longpaths true`.
+
+Alternatively, place the workarea in a directory with a short path.
+
 ## Prerequisites
 
 - Python 3.11 or later.

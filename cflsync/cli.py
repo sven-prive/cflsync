@@ -22,7 +22,7 @@ from .config import Config, Profile
 from .convert import ADFToMarkdownConverter, MarkdownToADFConverter, PandocRunner
 from .errors import SyncError
 from .sync import PageInspector
-from .workarea import AttachmentMetadata, MediaResolver, PageMetadata, PageRef, PageState, Workarea
+from .workarea import AttachmentMetadata, MediaResolver, PageMetadata, PageRef, PageState, Workarea, filesystem_error_message
 
 
 class InitCommand:
@@ -93,7 +93,7 @@ class PageCreateCommand:
 
             page = api.create_page(parent.space_id, parent.id, title)
         except (OSError, UnicodeError) as error:
-            raise SyncError(f"cannot create page: {error}") from error
+            raise SyncError(f"cannot create page: {filesystem_error_message(error)}") from error
 
         try:
             return PagePullCommand().run(page.id)
@@ -120,7 +120,7 @@ class PagePullCommand:
             page = api.get_page(reference.page_id)
             self._pull(workarea, page, PandocRunner(), api, force)
         except (OSError, UnicodeError) as error:
-            raise SyncError(f"cannot pull page: {error}") from error
+            raise SyncError(f"cannot pull page: {filesystem_error_message(error)}") from error
 
         return 0
 
@@ -214,7 +214,7 @@ class PagePushCommand:
             page = api.get_page(reference.page_id)
             self._push(workarea, page, state, cache_path, PandocRunner(), api, force)
         except (OSError, UnicodeError) as error:
-            raise SyncError(f"cannot push page: {error}") from error
+            raise SyncError(f"cannot push page: {filesystem_error_message(error)}") from error
 
         return 0
 
@@ -310,7 +310,7 @@ class PageRenameCommand:
             page = api.get_page(reference.page_id)
             self._rename(workarea, page, state, cache_path, PandocRunner(), title)
         except (OSError, UnicodeError) as error:
-            raise SyncError(f"cannot rename page: {error}") from error
+            raise SyncError(f"cannot rename page: {filesystem_error_message(error)}") from error
 
         return 0
 
@@ -375,7 +375,7 @@ class PageMoveCommand:
             parent = api.get_page(parent_reference.page_id)
             self._move(workarea, page, parent, state, cache_path, PandocRunner(), api)
         except (OSError, UnicodeError) as error:
-            raise SyncError(f"cannot move page: {error}") from error
+            raise SyncError(f"cannot move page: {filesystem_error_message(error)}") from error
 
         return 0
 
@@ -463,9 +463,9 @@ class PageRemoveCommand:
                 cache_path.unlink()
             except (OSError, SyncError) as error:
                 scope = "removed remotely but could not remove local state" if page is not None else "could not remove local state"
-                raise SyncError(f"page '{state.page.id}' {scope}: {error}") from error
+                raise SyncError(f"page '{state.page.id}' {scope}: {filesystem_error_message(error)}") from error
         except (OSError, UnicodeError) as error:
-            raise SyncError(f"cannot remove page: {error}") from error
+            raise SyncError(f"cannot remove page: {filesystem_error_message(error)}") from error
 
         return 0
 
@@ -499,7 +499,7 @@ class PageStatusCommand:
             directory = workarea.page_directory(state, must_exist=False)
             changes = PageInspector(PandocRunner()).inspect(directory, state, page, page.attachments())
         except (OSError, UnicodeError) as error:
-            raise SyncError(f"cannot report page status: {error}") from error
+            raise SyncError(f"cannot report page status: {filesystem_error_message(error)}") from error
 
         print(f"Page '{state.page.id}' ({state.page.title})")
         print(f"  local:  {self._summary(changes.page_locally, 'page.md', changes.attachments_locally)}")

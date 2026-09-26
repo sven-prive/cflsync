@@ -6,6 +6,7 @@
 
 """Tests for state-backed workarea operations."""
 
+import errno
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -13,6 +14,7 @@ import unittest
 from unittest.mock import patch
 
 from cflsync import PageState, StateError, Workarea
+from cflsync.workarea import filesystem_error_message
 from tests.support import example_page_state, temporary_workarea
 
 
@@ -140,12 +142,17 @@ class TestWorkareaMaterialization(unittest.TestCase):
             self.assertEqual(workarea.page_directory_name("Example "), "Example%20")
             self.assertEqual(workarea.page_directory_name("Example/page"), workarea.page_directory_name("Example/page"))
 
-    def test_rejects_paths_that_exceed_the_windows_limit(self) -> None:
+    @unittest.skipIf(os.name == "nt", "the error Windows reports for an over-long name component depends on its configuration")
+    def test_reports_a_name_that_the_filesystem_rejects_as_too_long(self) -> None:
         with temporary_workarea() as workarea:
-            directory_name = "x" * 260
-            with patch("cflsync.workarea._is_windows", return_value=True):
-                with self.assertRaisesRegex(Workarea.Error, "too long for Windows"):
-                    workarea.stage_page(directory_name, "# Example\n", {})
+            directory = "x" * 300
+            staging = workarea.stage_page(directory, "# Example\n", {})
+
+            with self.assertRaises(OSError) as context:
+                workarea.install_page(staging, directory)
+
+            self.assertRegex(filesystem_error_message(context.exception), r"path is too long for this system \(\d+ characters\)")
+            self.assertTrue(staging.is_dir())
 
     def test_writes_page_markdown_with_lf_newlines(self) -> None:
         with temporary_workarea() as workarea:
@@ -303,6 +310,193 @@ class TestWorkareaMaterialization(unittest.TestCase):
                     self.assertEqual((source / "page.md").read_text(), "previous\n")
                     self.assertEqual((source / "_attachments/old.txt").read_bytes(), b"old")
                     self.assertFalse((source / "_attachments/new.txt").exists())
+
+
+class WindowsPathLengthError(OSError):
+    """An OSError as Windows reports an over-long path, on any platform."""
+
+    winerror = 206
+
+
+class TestFilesystemErrorMessage(unittest.TestCase):
+
+    def test_names_the_longer_path_of_a_path_length_error(self) -> None:
+        error = OSError(errno.ENAMETOOLONG, "File name too long", "short", None, "much/longer/path")
+
+        self.assertEqual(
+            filesystem_error_message(error),
+            "path is too long for this system (16 characters): 'much/longer/path'; on Windows, enable long path support")
+
+    def test_recognizes_the_windows_path_length_error(self) -> None:
+        error = WindowsPathLengthError(errno.ENOENT, "The filename or extension is too long", "C:/workarea/page")
+
+        self.assertIn("path is too long for this system (16 characters)", filesystem_error_message(error))
+
+    def test_describes_a_path_length_error_without_a_path(self) -> None:
+        error = OSError(errno.ENAMETOOLONG, "File name too long")
+
+        self.assertEqual(filesystem_error_message(error), f"a path is too long for this system: {error}")
+
+    def test_leaves_other_errors_unchanged(self) -> None:
+        for error in [OSError(errno.EACCES, "Permission denied", "page"), UnicodeError("invalid byte")]:
+            with self.subTest(error=error):
+                self.assertEqual(filesystem_error_message(error), str(error))
+
+
+class TestWorkareaRelocation(unittest.TestCase):
+
+    def _page_directory(self, workarea, directory):
+        path = workarea.root_dir.joinpath(*directory.split("/"))
+        path.mkdir(parents=True)
+        (path / "page.md").write_text("previous\n", encoding="utf-8")
+        (path / "_attachments").mkdir()
+        return path
+
+    def test_moves_a_page_directory_with_its_contents(self) -> None:
+        with temporary_workarea() as workarea:
+            source = self._page_directory(workarea, "Old parent/Page")
+            self._page_directory(workarea, "Old parent/Page/Child")
+            (source / "notes.txt").write_text("unmanaged\n", encoding="utf-8")
+            self._page_directory(workarea, "New parent")
+
+            target = workarea.relocate(source, "New parent/Page")
+
+            self.assertEqual(target, workarea.root_dir / "New parent" / "Page")
+            self.assertFalse(source.exists())
+            self.assertEqual((target / "notes.txt").read_text(encoding="utf-8"), "unmanaged\n")
+            self.assertTrue((target / "Child" / "page.md").is_file())
+
+    def test_moving_to_the_same_directory_changes_nothing(self) -> None:
+        with temporary_workarea() as workarea:
+            source = self._page_directory(workarea, "Page")
+
+            self.assertEqual(workarea.relocate(source, "Page"), source)
+            self.assertTrue((source / "page.md").is_file())
+
+    def test_refuses_a_directory_assigned_to_another_cached_page(self) -> None:
+        with temporary_workarea() as workarea:
+            source = self._page_directory(workarea, "Page")
+            other = example_page_state("234567", directory="Target")
+            other.save(workarea.cache_path(other.page.id))
+
+            with self.assertRaisesRegex(Workarea.Error, "'target' is assigned to page '234567'"):
+                workarea.relocate(source, "target")
+
+            self.assertTrue(source.is_dir())
+
+    def test_refuses_an_existing_sibling_that_differs_only_in_case(self) -> None:
+        with temporary_workarea() as workarea:
+            source = self._page_directory(workarea, "Page")
+            (workarea.root_dir / "Parent" / "target").mkdir(parents=True)
+
+            with self.assertRaisesRegex(Workarea.Error, "'Parent/Target' already exists"):
+                workarea.relocate(source, "Parent/Target")
+
+            self.assertTrue(source.is_dir())
+
+    def test_windows_refuses_to_move_the_current_directory(self) -> None:
+        with temporary_workarea() as workarea:
+            source = self._page_directory(workarea, "Page")
+            original_cwd = os.getcwd()
+            os.chdir(source)
+            try:
+                with patch("cflsync.workarea._is_windows", return_value=True):
+                    with self.assertRaisesRegex(Workarea.Error, "run cflsync from outside"):
+                        workarea.relocate(source, "Renamed")
+            finally:
+                os.chdir(original_cwd)
+
+            self.assertTrue(source.is_dir())
+
+    def test_reports_a_rename_that_the_filesystem_rejects_as_too_long(self) -> None:
+        with temporary_workarea() as workarea:
+            source = self._page_directory(workarea, "Page")
+            target = str(workarea.root_dir / "Renamed")
+            error = OSError(errno.ENAMETOOLONG, "File name too long", str(source), None, target)
+
+            with patch("cflsync.workarea.os.rename", side_effect=error):
+                with self.assertRaisesRegex(Workarea.Error, "cannot move page directory: path is too long for this system"):
+                    workarea.relocate(source, "Renamed")
+
+
+class TestWorkareaNestedPageDirectories(unittest.TestCase):
+
+    def _page_directory(self, workarea, directory):
+        path = workarea.root_dir.joinpath(*directory.split("/"))
+        path.mkdir(parents=True)
+        (path / "page.md").write_text("previous\n", encoding="utf-8")
+        (path / "_attachments").mkdir()
+        return path
+
+    def test_resolves_a_nested_page_directory(self) -> None:
+        with temporary_workarea() as workarea:
+            path = self._page_directory(workarea, "Root/Child/Grandchild")
+
+            directory = workarea.page_directory(example_page_state(directory="Root/Child/Grandchild"))
+
+            self.assertEqual(directory, path)
+
+    def test_rejects_malformed_relative_page_directories(self) -> None:
+        with temporary_workarea() as workarea:
+            for directory in ["/Root", "Root/", "Root//Child", "Root/./Child", "Root/../Child", "../Root", "."]:
+                with self.subTest(directory=directory):
+                    with self.assertRaisesRegex(Workarea.Error, "relative path of directory names"):
+                        workarea.page_directory(example_page_state(directory=directory), must_exist=False)
+
+    @unittest.skipIf(os.name == "nt", "creating symbolic links needs extra privileges on Windows")
+    def test_rejects_a_nested_directory_that_escapes_through_a_symbolic_link(self) -> None:
+        with TemporaryDirectory() as outside:
+            with temporary_workarea() as workarea:
+                (workarea.root_dir / "Root").symlink_to(outside, target_is_directory=True)
+
+                with self.assertRaisesRegex(Workarea.Error, "outside the workarea"):
+                    workarea.page_directory(example_page_state(directory="Root/Child"), must_exist=False)
+
+    def test_stages_and_installs_a_nested_page(self) -> None:
+        with temporary_workarea() as workarea:
+            self._page_directory(workarea, "Root")
+            staging = workarea.stage_page("Root/Child", "# Child\n", {"diagram.png": b"PNG"})
+
+            target = workarea.install_page(staging, "Root/Child")
+
+            self.assertEqual(target, workarea.root_dir / "Root" / "Child")
+            self.assertEqual((target / "page.md").read_text(encoding="utf-8"), "# Child\n")
+            self.assertEqual((target / "_attachments/diagram.png").read_bytes(), b"PNG")
+
+    def test_checks_collisions_among_siblings_in_the_parent_directory(self) -> None:
+        with temporary_workarea() as workarea:
+            self._page_directory(workarea, "Root")
+            (workarea.root_dir / "Child").mkdir()
+            state = example_page_state(directory="Root/Child")
+
+            self.assertEqual(workarea.page_directory_target(state), workarea.root_dir / "Root" / "Child")
+
+            (workarea.root_dir / "Root" / "child").mkdir()
+            with self.assertRaisesRegex(Workarea.Error, "'Root/Child' already exists"):
+                workarea.page_directory_target(state)
+
+    def test_renames_a_nested_page_directory_within_its_parent(self) -> None:
+        with temporary_workarea() as workarea:
+            source = self._page_directory(workarea, "Root/Old")
+            (source / "notes.txt").write_text("unmanaged\n", encoding="utf-8")
+            staging = workarea.stage_page("Root/New", "replacement\n", {}, source=source)
+
+            with workarea.replace_page(staging, "Root/New", source) as target:
+                pass
+
+            self.assertEqual(target, workarea.root_dir / "Root" / "New")
+            self.assertFalse(source.exists())
+            self.assertEqual((target / "page.md").read_text(encoding="utf-8"), "replacement\n")
+            self.assertEqual((target / "notes.txt").read_text(encoding="utf-8"), "unmanaged\n")
+
+    def test_rejects_a_previous_directory_outside_the_workarea(self) -> None:
+        with TemporaryDirectory() as outside:
+            with temporary_workarea() as workarea:
+                staging = workarea.stage_page("Root", "replacement\n", {})
+
+                with self.assertRaisesRegex(Workarea.Error, "previous page directory must be inside the workarea"):
+                    with workarea.replace_page(staging, "Root", Path(outside).resolve()):
+                        pass
 
 
 # vim: set ts=4 sw=4 et tw=132:

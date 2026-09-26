@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 from cflsync import APIClient, PageState, Profile, SyncError
 from cflsync.cli import PagePullCommand
-from tests.support import MockResponse, MockTransport, example_page_state, temporary_workarea
+from tests.support import FakeConfluence, MockResponse, MockTransport, example_page_state, temporary_workarea
 from tests.test_api_operations import attachment_fixture, page_fixture, user_fixture
 
 
@@ -340,6 +340,25 @@ class TestPagePull(unittest.TestCase):
                                     self._pull(workarea, page=self._page(18, title))
 
                             self.assertEqual(self._snapshot(workarea), before)
+
+
+class TestPagePullPathLength(unittest.TestCase):
+
+    @unittest.skipIf(os.name == "nt", "the error Windows reports for an over-long name component depends on its configuration")
+    def test_reports_a_directory_name_that_the_filesystem_rejects_as_too_long(self) -> None:
+        site = FakeConfluence()
+        site.add_page("123456", "x" * 300)
+        with temporary_workarea() as workarea:
+            config = SimpleNamespace(profiles={workarea.profile: Profile("example.atlassian.net", "user", "token")})
+            with patch("cflsync.cli.Path.cwd", return_value=workarea.root_dir):
+                with patch("cflsync.cli.Config.find", return_value=config):
+                    with patch("cflsync.cli.APIClient", return_value=site.client()):
+                        with self.assertRaisesRegex(SyncError,
+                                                    r"cannot pull page: path is too long for this system \(\d+ characters\)"):
+                            PagePullCommand().run("123456")
+
+            self.assertEqual(list(workarea.cache_dir.iterdir()), [])
+            self.assertEqual([path.name for path in workarea.root_dir.iterdir()], [".cflsync"])
 
 
 # vim: set ts=4 sw=4 et tw=132:
